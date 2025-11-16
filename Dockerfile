@@ -4,44 +4,37 @@ FROM python:3.9-slim
 # Set working directory
 WORKDIR /app
 
-# Install Node.js and bash for frontend build
+# Install Node.js
 RUN apt-get update && apt-get install -y \
     curl \
-    bash \
     && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
     && apt-get install -y nodejs \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first for better caching
-COPY backend/requirements.txt /app/backend/requirements.txt
+# Copy backend requirements
+COPY backend/requirements.txt backend/requirements.txt
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -r backend/requirements.txt && \
-    pip install --no-cache-dir gunicorn
+RUN pip install --no-cache-dir -r backend/requirements.txt gunicorn
 
-# Copy the rest of the application
-COPY . /app
+# Copy entire project
+COPY . .
 
 # Build frontend
-WORKDIR /app/frontend
-RUN npm install && npm run build
+RUN cd frontend && npm install && npm run build
 
-# Initialize database if needed
-WORKDIR /app/backend
-RUN if [ ! -f basketball_sim.db ]; then \
-    python seed_data.py && \
-    python add_free_agents.py; \
-    fi
+# Initialize database
+RUN cd backend && python seed_data.py && python add_free_agents.py
 
-# Go back to backend for runtime
+# Set working directory to backend
 WORKDIR /app/backend
 
-# Expose port (Railway will set PORT env variable)
+# Expose port
 EXPOSE 8080
 
-# Set environment variable for Python unbuffered output
+# Set environment
 ENV PYTHONUNBUFFERED=1
 
-# Start using Python wrapper script (no shell needed)
+# Start gunicorn
 CMD ["python3", "start_gunicorn.py"]
