@@ -1,11 +1,9 @@
 [phases.setup]
-nixPkgs = ["python39", "nodejs-18_x"]
-aptPkgs = []
+nixPkgs = ["python39", "python39Packages.pip", "nodejs-18_x"]
 
 [phases.install]
 cmds = [
-  "python3.9 -m pip install --upgrade pip",
-  "python3.9 -m pip install -r backend/requirements.txt"
+  "pip install -r backend/requirements.txt"
 ]
 
 [phases.build]
