@@ -103,8 +103,9 @@ class Series(Base):
     __tablename__ = 'series'
     
     id = Column(Integer, primary_key=True)
-    tournament_round = Column(Integer)  # 1, 2, 3, 4 (Finals)
+    tournament_round = Column(Integer)  # 1, 2, 3, 4 (Conference Finals), 5 (NBA Finals)
     series_number = Column(Integer)  # Which series in this round
+    conference = Column(String(10), nullable=True)  # 'East', 'West', or None for Finals
     team1_id = Column(Integer, ForeignKey('teams.id'))
     team2_id = Column(Integer, ForeignKey('teams.id'))
     team1_wins = Column(Integer, default=0)

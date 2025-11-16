@@ -81,21 +81,36 @@ export const createGame = (data: {
   series_id?: number;
 }) => api.post('/games/create', data);
 
+export const previewGame = (data: {
+  home_team_id: number;
+  away_team_id: number;
+  quarter_number: number;
+  home_score: number;
+  away_score: number;
+}) => api.post('/games/preview', data);
+
 export const getGame = (id: number) => api.get(`/games/${id}`);
 export const getGames = () => api.get('/games');
+export const deleteGame = (id: number) => api.delete(`/games/${id}`);
 export const getPlayByPlay = (gameId: number) => api.get(`/games/${gameId}/playbyplay`);
 
 // Tournament
 export const initializeTournament = () => api.post('/tournament/initialize');
 export const getTournamentOverview = () => api.get('/tournament/overview');
 export const getSeries = (id: number) => api.get(`/tournament/series/${id}`);
+export const getSeriesGames = (id: number) => api.get(`/tournament/series/${id}/games`);
 export const getActiveSeries = () => api.get('/tournament/active-series');
 export const advanceRound = (roundNumber: number) => api.post(`/tournament/advance-round/${roundNumber}`);
+export const resetTournament = (runId?: number) => api.post('/tournament/reset', { run_id: runId });
 
 // Stats
 export const getPlayerStats = (playerId: number) => api.get(`/stats/player/${playerId}`);
 export const getStatLeaders = (params?: { run_id?: number; season?: 'current' | 'all' }) => 
   api.get('/stats/leaders', { params });
+export const getTeamStats = (params?: { run_id?: number; season?: 'current' | 'all' }) =>
+  api.get('/stats/teams', { params });
+export const getHeadToHead = (team1Id: number, team2Id: number) =>
+  api.get(`/stats/head-to-head?team1_id=${team1Id}&team2_id=${team2Id}`);
 
 // Runs (Seasons)
 export const getRuns = () => api.get('/runs');

@@ -37,6 +37,10 @@ function App() {
   const [runs, setRuns] = useState<any[]>([]);
   const [activeRun, setActiveRun] = useState<any>(null);
   const [seasonFilter, setSeasonFilter] = useState<'current' | 'all'>('current');
+  
+  // Game preview
+  const [gamePreview, setGamePreview] = useState<any>(null);
+  const [showPreview, setShowPreview] = useState(false);
 
   useEffect(() => {
     // Load active series and runs on mount
@@ -140,6 +144,38 @@ function App() {
     }
   };
 
+  const handlePreviewGame = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    try {
+      if (!selectedSeries) {
+        setError('Please select a series first');
+        setLoading(false);
+        return;
+      }
+
+      const seriesResponse = await api.getSeries(parseInt(selectedSeries));
+      const seriesData = seriesResponse.data;
+
+      const response = await api.previewGame({
+        home_team_id: seriesData.team1.id,
+        away_team_id: seriesData.team2.id,
+        quarter_number: parseInt(quarterNumber),
+        home_score: parseInt(homeScore),
+        away_score: parseInt(awayScore)
+      });
+
+      setGamePreview(response.data);
+      setShowPreview(true);
+      setLoading(false);
+    } catch (err: any) {
+      setError('Failed to preview game: ' + err.message);
+      setLoading(false);
+    }
+  };
+
   const handleCreateGame = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -171,6 +207,10 @@ function App() {
       // Load the full game details
       const gameDetails = await api.getGame(response.data.game_id);
       setSelectedGame(gameDetails.data);
+      
+      // Reset preview
+      setShowPreview(false);
+      setGamePreview(null);
       
       // Reload active series to update scores
       await loadActiveSeries();
@@ -388,9 +428,59 @@ function App() {
               </div>
             </div>
 
-            <button type="submit" className="btn-primary" disabled={loading}>
-              {loading ? 'Simulating Full Game...' : 'Simulate Full 48-Minute Game'}
-            </button>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button 
+                type="button" 
+                onClick={handlePreviewGame} 
+                className="btn-secondary" 
+                disabled={loading || !homeScore || !awayScore}
+              >
+                {loading ? 'Generating Preview...' : '👁️ Preview Game'}
+              </button>
+              <button type="submit" className="btn-primary" disabled={loading}>
+                {loading ? 'Simulating Full Game...' : 'Create & Simulate Game'}
+              </button>
+            </div>
+
+            {showPreview && gamePreview && (
+              <div style={{
+                marginTop: '20px',
+                padding: '20px',
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                color: 'white',
+                borderRadius: '12px',
+                boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)'
+              }}>
+                <h3 style={{ marginBottom: '15px' }}>Preview: Extrapolated Game Result</h3>
+                <div style={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center', marginBottom: '15px' }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '18px', marginBottom: '5px' }}>{gamePreview.home_team}</div>
+                    <div style={{ fontSize: '48px', fontWeight: 'bold' }}>{gamePreview.final_score.home}</div>
+                  </div>
+                  <div style={{ fontSize: '24px', fontWeight: 'bold' }}>-</div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '18px', marginBottom: '5px' }}>{gamePreview.away_team}</div>
+                    <div style={{ fontSize: '48px', fontWeight: 'bold' }}>{gamePreview.final_score.away}</div>
+                  </div>
+                </div>
+                <div style={{ fontSize: '16px', textAlign: 'center', marginBottom: '10px' }}>
+                  Winner: <strong>{gamePreview.winner}</strong>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '14px' }}>
+                  <div>
+                    <strong>Q1:</strong> {gamePreview.quarters.home[0]} - {gamePreview.quarters.away[0]}<br/>
+                    <strong>Q2:</strong> {gamePreview.quarters.home[1]} - {gamePreview.quarters.away[1]}
+                  </div>
+                  <div>
+                    <strong>Q3:</strong> {gamePreview.quarters.home[2]} - {gamePreview.quarters.away[2]}<br/>
+                    <strong>Q4:</strong> {gamePreview.quarters.home[3]} - {gamePreview.quarters.away[3]}
+                  </div>
+                </div>
+                <p style={{ marginTop: '15px', fontSize: '13px', opacity: 0.9 }}>
+                  If this looks good, click "Create & Simulate Game" above to save this result!
+                </p>
+              </div>
+            )}
           </form>
               )}
             </>

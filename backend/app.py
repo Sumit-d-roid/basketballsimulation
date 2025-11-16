@@ -132,6 +132,69 @@ def get_team(team_id):
 
 # ==================== GAME ENDPOINTS ====================
 
+@app.route('/api/games/preview', methods=['POST'])
+def preview_game():
+    """
+    Preview extrapolated game scores without creating the game.
+    Body: {
+        "home_team_id": 1,
+        "away_team_id": 2,
+        "quarter_number": 1,
+        "home_score": 28,
+        "away_score": 25
+    }
+    """
+    data = request.json
+    
+    try:
+        home_team_id = data['home_team_id']
+        away_team_id = data['away_team_id']
+        quarter_number = data['quarter_number']
+        home_score = data['home_score']
+        away_score = data['away_score']
+        
+        # Validate quarter number
+        if quarter_number not in [1, 2, 3, 4]:
+            return jsonify({'error': 'Quarter number must be 1-4'}), 400
+        
+        # Get team names
+        session = get_session()
+        home_team = session.query(Team).filter_by(id=home_team_id).first()
+        away_team = session.query(Team).filter_by(id=away_team_id).first()
+        
+        if not home_team or not away_team:
+            return jsonify({'error': 'Invalid team IDs'}), 400
+        
+        # Calculate base rates and generate quarters preview
+        home_base_rate = home_score / 12
+        away_base_rate = away_score / 12
+        
+        quarters_data = extrapolator._generate_all_quarters(
+            home_base_rate, away_base_rate, quarter_number,
+            home_score, away_score
+        )
+        
+        home_total = sum(quarters_data['home'])
+        away_total = sum(quarters_data['away'])
+        
+        return jsonify({
+            'home_team': f"{home_team.city} {home_team.name}",
+            'away_team': f"{away_team.city} {away_team.name}",
+            'quarters': {
+                'home': quarters_data['home'],
+                'away': quarters_data['away']
+            },
+            'final_score': {
+                'home': home_total,
+                'away': away_total
+            },
+            'winner': f"{home_team.city} {home_team.name}" if home_total > away_total else f"{away_team.city} {away_team.name}"
+        })
+    except KeyError as e:
+        return jsonify({'error': f'Missing required field: {str(e)}'}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/games/create', methods=['POST'])
 def create_game():
     """
@@ -277,6 +340,43 @@ def get_play_by_play(game_id):
         'details': p.details
     } for p in plays])
 
+@app.route('/api/games/<int:game_id>', methods=['DELETE'])
+def delete_game(game_id):
+    """Delete a game and revert series wins"""
+    session = get_session()
+    game = session.query(Game).filter_by(id=game_id).first()
+    
+    if not game:
+        return jsonify({'error': 'Game not found'}), 404
+    
+    # Revert series wins if game was part of a series
+    if game.series_id:
+        series = session.query(Series).filter_by(id=game.series_id).first()
+        if series:
+            # Decrease win count for the team that won this game
+            if game.home_team_score > game.away_team_score:
+                if series.team1_id == game.home_team_id:
+                    series.team1_wins = max(0, series.team1_wins - 1)
+                else:
+                    series.team2_wins = max(0, series.team2_wins - 1)
+            else:
+                if series.team1_id == game.away_team_id:
+                    series.team1_wins = max(0, series.team1_wins - 1)
+                else:
+                    series.team2_wins = max(0, series.team2_wins - 1)
+            
+            # Reset series completion status
+            series.is_completed = False
+            series.winner_team_id = None
+    
+    # Delete associated records
+    session.query(PlayerGameStats).filter_by(game_id=game_id).delete()
+    session.query(PlayByPlay).filter_by(game_id=game_id).delete()
+    session.delete(game)
+    session.commit()
+    
+    return jsonify({'message': 'Game deleted successfully'})
+
 @app.route('/api/games', methods=['GET'])
 def get_all_games():
     """Get all games"""
@@ -384,6 +484,38 @@ def advance_round(round_number):
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/tournament/reset', methods=['POST'])
+def reset_tournament():
+    """Reset the current tournament (delete all series/games, keep teams/players)"""
+    try:
+        data = request.get_json() or {}
+        run_id = data.get('run_id')
+        result = tournament_mgr.reset_tournament(run_id=run_id)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/tournament/series/<int:series_id>/games', methods=['GET'])
+def get_series_games(series_id):
+    """Get all games for a specific series"""
+    session = get_session()
+    games = session.query(Game).filter_by(series_id=series_id).order_by(Game.game_date).all()
+    
+    return jsonify([{
+        'id': g.id,
+        'game_number': g.game_number_in_series,
+        'date': g.game_date.isoformat(),
+        'home_team': f"{g.home_team.city} {g.home_team.name}",
+        'away_team': f"{g.away_team.city} {g.away_team.name}",
+        'home_score': g.home_team_score,
+        'away_score': g.away_team_score,
+        'winner': f"{g.home_team.city} {g.home_team.name}" if g.home_team_score > g.away_team_score else f"{g.away_team.city} {g.away_team.name}",
+        'quarters': {
+            'home': [g.home_q1, g.home_q2, g.home_q3, g.home_q4],
+            'away': [g.away_q1, g.away_q2, g.away_q3, g.away_q4]
+        }
+    } for g in games])
 
 # ==================== STATS ENDPOINTS ====================
 
@@ -502,6 +634,132 @@ def get_player_stats(player_id):
             'fg': f"{s.fgm}/{s.fga}",
             'plus_minus': s.plus_minus
         } for s in stats]
+    })
+
+@app.route('/api/stats/teams', methods=['GET'])
+def get_team_stats():
+    """Get statistics for all teams in current or specified run"""
+    from models import Run
+    session = get_session()
+    
+    # Get optional run_id filter (defaults to active run)
+    run_id = request.args.get('run_id', type=int)
+    season_filter = request.args.get('season', 'current')
+    
+    # Determine which run(s) to query
+    if season_filter == 'all':
+        run_filter = None
+    elif run_id:
+        run_filter = run_id
+    else:
+        active_run = session.query(Run).filter_by(is_active=True).first()
+        run_filter = active_run.id if active_run else None
+    
+    teams = session.query(Team).all()
+    team_stats = []
+    
+    from sqlalchemy import func, case
+    
+    for team in teams:
+        # Build query with optional run filter
+        home_games_query = session.query(Game).filter(Game.home_team_id == team.id)
+        away_games_query = session.query(Game).filter(Game.away_team_id == team.id)
+        
+        if run_filter:
+            home_games_query = home_games_query.filter(Game.run_id == run_filter)
+            away_games_query = away_games_query.filter(Game.run_id == run_filter)
+        
+        home_games = home_games_query.all()
+        away_games = away_games_query.all()
+        
+        wins = sum(1 for g in home_games if g.home_team_score > g.away_team_score)
+        wins += sum(1 for g in away_games if g.away_team_score > g.home_team_score)
+        
+        losses = sum(1 for g in home_games if g.home_team_score < g.away_team_score)
+        losses += sum(1 for g in away_games if g.away_team_score < g.home_team_score)
+        
+        games_played = len(home_games) + len(away_games)
+        
+        if games_played == 0:
+            continue
+        
+        points_scored = sum(g.home_team_score for g in home_games) + sum(g.away_team_score for g in away_games)
+        points_allowed = sum(g.away_team_score for g in home_games) + sum(g.home_team_score for g in away_games)
+        
+        team_stats.append({
+            'team_id': team.id,
+            'team': f"{team.city} {team.name}",
+            'games_played': games_played,
+            'wins': wins,
+            'losses': losses,
+            'win_pct': round(wins / games_played, 3) if games_played > 0 else 0,
+            'ppg': round(points_scored / games_played, 1),
+            'opp_ppg': round(points_allowed / games_played, 1),
+            'point_diff': round((points_scored - points_allowed) / games_played, 1)
+        })
+    
+    # Sort by wins descending
+    team_stats.sort(key=lambda x: (x['wins'], x['point_diff']), reverse=True)
+    
+    return jsonify(team_stats)
+
+@app.route('/api/stats/head-to-head', methods=['GET'])
+def get_head_to_head():
+    """Get head-to-head record between two teams across all games"""
+    team1_id = request.args.get('team1_id', type=int)
+    team2_id = request.args.get('team2_id', type=int)
+    
+    if not team1_id or not team2_id:
+        return jsonify({'error': 'Both team1_id and team2_id required'}), 400
+    
+    session = get_session()
+    team1 = session.query(Team).filter_by(id=team1_id).first()
+    team2 = session.query(Team).filter_by(id=team2_id).first()
+    
+    if not team1 or not team2:
+        return jsonify({'error': 'Invalid team IDs'}), 404
+    
+    # Get all games between these teams
+    games = session.query(Game).filter(
+        ((Game.home_team_id == team1_id) & (Game.away_team_id == team2_id)) |
+        ((Game.home_team_id == team2_id) & (Game.away_team_id == team1_id))
+    ).all()
+    
+    team1_wins = 0
+    team2_wins = 0
+    game_history = []
+    
+    for game in games:
+        if game.home_team_id == team1_id:
+            team1_score = game.home_team_score
+            team2_score = game.away_team_score
+            if team1_score > team2_score:
+                team1_wins += 1
+            else:
+                team2_wins += 1
+        else:
+            team1_score = game.away_team_score
+            team2_score = game.home_team_score
+            if team1_score > team2_score:
+                team1_wins += 1
+            else:
+                team2_wins += 1
+        
+        game_history.append({
+            'game_id': game.id,
+            'date': game.game_date.isoformat(),
+            'team1_score': team1_score,
+            'team2_score': team2_score,
+            'winner': f"{team1.city} {team1.name}" if team1_score > team2_score else f"{team2.city} {team2.name}"
+        })
+    
+    return jsonify({
+        'team1': f"{team1.city} {team1.name}",
+        'team2': f"{team2.city} {team2.name}",
+        'team1_wins': team1_wins,
+        'team2_wins': team2_wins,
+        'total_games': len(games),
+        'game_history': game_history
     })
 
 # ==================== RUN MANAGEMENT ENDPOINTS ====================

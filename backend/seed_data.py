@@ -27,6 +27,7 @@ def seed_teams_and_players():
         {"name": "Heat", "city": "Miami", "abbr": "MIA", "conf": "East", "div": "Southeast", "type": "NBA"},
         {"name": "Magic", "city": "Orlando", "abbr": "ORL", "conf": "East", "div": "Southeast", "type": "NBA"},
         {"name": "Wizards", "city": "Washington", "abbr": "WAS", "conf": "East", "div": "Southeast", "type": "NBA"},
+        {"name": "Grizzlies", "city": "Memphis", "abbr": "MEM", "conf": "East", "div": "Southeast", "type": "NBA"},  # Move to East for balance
         
         # Western Conference - Northwest
         {"name": "Nuggets", "city": "Denver", "abbr": "DEN", "conf": "West", "div": "Northwest", "type": "NBA"},
@@ -45,7 +46,6 @@ def seed_teams_and_players():
         # Western Conference - Southwest
         {"name": "Mavericks", "city": "Dallas", "abbr": "DAL", "conf": "West", "div": "Southwest", "type": "NBA"},
         {"name": "Rockets", "city": "Houston", "abbr": "HOU", "conf": "West", "div": "Southwest", "type": "NBA"},
-        {"name": "Grizzlies", "city": "Memphis", "abbr": "MEM", "conf": "West", "div": "Southwest", "type": "NBA"},
         {"name": "Pelicans", "city": "New Orleans", "abbr": "NOP", "conf": "West", "div": "Southwest", "type": "NBA"},
         {"name": "Spurs", "city": "San Antonio", "abbr": "SAS", "conf": "West", "div": "Southwest", "type": "NBA"},
         

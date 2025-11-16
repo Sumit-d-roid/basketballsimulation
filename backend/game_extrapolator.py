@@ -137,6 +137,23 @@ class GameExtrapolator:
             quarters['home'][q] = home_q_score
             quarters['away'][q] = away_q_score
         
+        # CRITICAL: Ensure the team that won the input quarter ALWAYS wins the game
+        home_total = sum(quarters['home'])
+        away_total = sum(quarters['away'])
+        
+        # Determine who should win based on input quarter
+        home_should_win = actual_home_score > actual_away_score
+        
+        # If wrong team is winning, adjust the final score
+        if home_should_win and home_total <= away_total:
+            # Home should win but isn't - add points to home's last quarter
+            deficit = (away_total - home_total) + random.randint(3, 8)
+            quarters['home'][3] += deficit
+        elif not home_should_win and away_total <= home_total:
+            # Away should win but isn't - add points to away's last quarter
+            deficit = (home_total - away_total) + random.randint(3, 8)
+            quarters['away'][3] += deficit
+        
         return quarters
     
     def _generate_player_stats(self, game):
