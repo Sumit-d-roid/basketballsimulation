@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
 import * as api from './api';
+import { BracketTree } from './BracketTree';
 
 interface Series {
   id: number;
@@ -30,11 +31,37 @@ function App() {
   const [games, setGames] = useState<any[]>([]);
   const [selectedGame, setSelectedGame] = useState<any>(null);
   const [playByPlay, setPlayByPlay] = useState<any[]>([]);
+  const [statLeaders, setStatLeaders] = useState<any>(null);
+  
+  // Runs/Seasons
+  const [runs, setRuns] = useState<any[]>([]);
+  const [activeRun, setActiveRun] = useState<any>(null);
+  const [seasonFilter, setSeasonFilter] = useState<'current' | 'all'>('current');
 
   useEffect(() => {
-    // Load active series on mount
+    // Load active series and runs on mount
     loadActiveSeries();
+    loadRuns();
+    loadActiveRun();
   }, []);
+
+  const loadRuns = async () => {
+    try {
+      const response = await api.getRuns();
+      setRuns(response.data);
+    } catch (err: any) {
+      console.error('Failed to load runs:', err.message);
+    }
+  };
+
+  const loadActiveRun = async () => {
+    try {
+      const response = await api.getActiveRun();
+      setActiveRun(response.data);
+    } catch (err: any) {
+      console.error('Failed to load active run:', err.message);
+    }
+  };
 
   const loadActiveSeries = async () => {
     try {
@@ -65,6 +92,50 @@ function App() {
       setLoading(false);
     } catch (err: any) {
       setError('Failed to load games: ' + err.message);
+      setLoading(false);
+    }
+  };
+
+  const loadStatLeaders = async () => {
+    try {
+      setLoading(true);
+      const response = await api.getStatLeaders({ season: seasonFilter });
+      setStatLeaders(response.data);
+      setLoading(false);
+    } catch (err: any) {
+      setError('Failed to load stats: ' + err.message);
+      setLoading(false);
+    }
+  };
+
+  const handleCreateNewRun = async () => {
+    const year = prompt('Enter year for new season:', new Date().getFullYear().toString());
+    if (!year) return;
+    
+    try {
+      setLoading(true);
+      await api.createRun({ year: parseInt(year) });
+      await loadRuns();
+      await loadActiveRun();
+      await loadActiveSeries();
+      setSuccess(`New season ${year} created!`);
+      setLoading(false);
+    } catch (err: any) {
+      setError('Failed to create new season: ' + err.message);
+      setLoading(false);
+    }
+  };
+
+  const handleSwitchRun = async (runId: number) => {
+    try {
+      setLoading(true);
+      await api.activateRun(runId);
+      await loadActiveRun();
+      await loadActiveSeries();
+      setSuccess('Switched season!');
+      setLoading(false);
+    } catch (err: any) {
+      setError('Failed to switch season: ' + err.message);
       setLoading(false);
     }
   };
@@ -153,6 +224,8 @@ function App() {
       loadGames();
     } else if (currentView === 'create-game') {
       loadActiveSeries();
+    } else if (currentView === 'stats') {
+      loadStatLeaders();
     }
   }, [currentView]);
 
@@ -161,6 +234,21 @@ function App() {
       <div className="header">
         <h1>🏀 Basketball Simulation</h1>
         <p>32-Team Tournament • Best of 7 Series • Real NBA Rosters</p>
+        
+        {activeRun && (
+          <div style={{ 
+            textAlign: 'center', 
+            margin: '10px 0',
+            padding: '8px',
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            color: 'white',
+            borderRadius: '8px',
+            fontSize: '14px'
+          }}>
+            Current Season: <strong>{activeRun.name}</strong>
+            {activeRun.champion && <span> • Champion: {activeRun.champion} 🏆</span>}
+          </div>
+        )}
         
         <div className="nav">
           <button 
@@ -180,6 +268,18 @@ function App() {
             onClick={() => setCurrentView('tournament')}
           >
             Tournament Bracket
+          </button>
+          <button 
+            className={currentView === 'stats' ? 'active' : ''}
+            onClick={() => setCurrentView('stats')}
+          >
+            Stats Leaders
+          </button>
+          <button 
+            className={currentView === 'seasons' ? 'active' : ''}
+            onClick={() => setCurrentView('seasons')}
+          >
+            Seasons
           </button>
         </div>
       </div>
@@ -494,37 +594,233 @@ function App() {
 
       {currentView === 'tournament' && (
         <div className="card">
-          <h2>Tournament Bracket</h2>
+          <h2>🏆 Tournament Bracket</h2>
           {loading ? (
             <div className="loading">Loading tournament...</div>
           ) : tournamentData ? (
-            <div className="tournament-bracket">
-              {Object.entries(tournamentData).map(([roundName, seriesList]: [string, any]) => (
-                <div key={roundName} className="round-card">
-                  <h3>{roundName}</h3>
-                  {seriesList.map((series: any) => (
-                    <div 
-                      key={series.id} 
-                      className={`series-item ${series.is_completed ? 'completed' : 'active'}`}
-                    >
-                      <div><strong>{series.team1}</strong></div>
-                      <div style={{ margin: '5px 0', color: '#718096' }}>vs</div>
-                      <div><strong>{series.team2}</strong></div>
-                      <div style={{ marginTop: '10px', fontSize: '1.2rem', fontWeight: 'bold', color: '#667eea' }}>
-                        {series.score}
-                      </div>
-                      {series.winner && (
-                        <div style={{ marginTop: '10px', color: '#48bb78', fontWeight: 'bold' }}>
-                          Winner: {series.winner}
-                        </div>
-                      )}
+            <BracketTree tournamentData={tournamentData} />
+          ) : (
+            <div style={{ textAlign: 'center', padding: '40px' }}>
+              <p style={{ marginBottom: '20px', color: '#718096' }}>No tournament data available.</p>
+              <button onClick={handleInitTournament} className="btn-primary">
+                Initialize Tournament
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {currentView === 'stats' && (
+        <div className="card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <h2>📊 Season Leaders</h2>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button 
+                className={seasonFilter === 'current' ? 'btn-primary' : 'btn-secondary'}
+                onClick={() => {
+                  setSeasonFilter('current');
+                  loadStatLeaders();
+                }}
+              >
+                Current Season
+              </button>
+              <button 
+                className={seasonFilter === 'all' ? 'btn-primary' : 'btn-secondary'}
+                onClick={() => {
+                  setSeasonFilter('all');
+                  loadStatLeaders();
+                }}
+              >
+                All-Time
+              </button>
+            </div>
+          </div>
+          {loading ? (
+            <div className="loading">Loading stats...</div>
+          ) : statLeaders ? (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '30px' }}>
+              {/* Scoring Leaders */}
+              <div>
+                <h3 style={{ 
+                  padding: '12px', 
+                  background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+                  color: 'white',
+                  borderRadius: '8px',
+                  marginBottom: '15px'
+                }}>
+                  🏀 Points Per Game
+                </h3>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '2px solid #e2e8f0' }}>
+                      <th style={{ padding: '10px', textAlign: 'left' }}>#</th>
+                      <th style={{ padding: '10px', textAlign: 'left' }}>Player</th>
+                      <th style={{ padding: '10px', textAlign: 'right' }}>PPG</th>
+                      <th style={{ padding: '10px', textAlign: 'right' }}>GP</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {statLeaders.scoring_leaders.map((player: any) => (
+                      <tr key={player.player_id} style={{ borderBottom: '1px solid #f7fafc' }}>
+                        <td style={{ padding: '10px', fontWeight: 'bold', color: '#667eea' }}>{player.rank}</td>
+                        <td style={{ padding: '10px' }}>
+                          <div style={{ fontWeight: '600' }}>{player.name}</div>
+                          <div style={{ fontSize: '0.85rem', color: '#718096' }}>{player.team}</div>
+                        </td>
+                        <td style={{ padding: '10px', textAlign: 'right', fontWeight: '700', fontSize: '1.1rem' }}>
+                          {player.ppg}
+                        </td>
+                        <td style={{ padding: '10px', textAlign: 'right', color: '#718096' }}>{player.games}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Rebounding Leaders */}
+              <div>
+                <h3 style={{ 
+                  padding: '12px', 
+                  background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+                  color: 'white',
+                  borderRadius: '8px',
+                  marginBottom: '15px'
+                }}>
+                  💪 Rebounds Per Game
+                </h3>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '2px solid #e2e8f0' }}>
+                      <th style={{ padding: '10px', textAlign: 'left' }}>#</th>
+                      <th style={{ padding: '10px', textAlign: 'left' }}>Player</th>
+                      <th style={{ padding: '10px', textAlign: 'right' }}>RPG</th>
+                      <th style={{ padding: '10px', textAlign: 'right' }}>GP</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {statLeaders.rebounding_leaders.map((player: any) => (
+                      <tr key={player.player_id} style={{ borderBottom: '1px solid #f7fafc' }}>
+                        <td style={{ padding: '10px', fontWeight: 'bold', color: '#4facfe' }}>{player.rank}</td>
+                        <td style={{ padding: '10px' }}>
+                          <div style={{ fontWeight: '600' }}>{player.name}</div>
+                          <div style={{ fontSize: '0.85rem', color: '#718096' }}>{player.team}</div>
+                        </td>
+                        <td style={{ padding: '10px', textAlign: 'right', fontWeight: '700', fontSize: '1.1rem' }}>
+                          {player.rpg}
+                        </td>
+                        <td style={{ padding: '10px', textAlign: 'right', color: '#718096' }}>{player.games}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Assists Leaders */}
+              <div>
+                <h3 style={{ 
+                  padding: '12px', 
+                  background: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
+                  color: 'white',
+                  borderRadius: '8px',
+                  marginBottom: '15px'
+                }}>
+                  🎯 Assists Per Game
+                </h3>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '2px solid #e2e8f0' }}>
+                      <th style={{ padding: '10px', textAlign: 'left' }}>#</th>
+                      <th style={{ padding: '10px', textAlign: 'left' }}>Player</th>
+                      <th style={{ padding: '10px', textAlign: 'right' }}>APG</th>
+                      <th style={{ padding: '10px', textAlign: 'right' }}>GP</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {statLeaders.assists_leaders.map((player: any) => (
+                      <tr key={player.player_id} style={{ borderBottom: '1px solid #f7fafc' }}>
+                        <td style={{ padding: '10px', fontWeight: 'bold', color: '#43e97b' }}>{player.rank}</td>
+                        <td style={{ padding: '10px' }}>
+                          <div style={{ fontWeight: '600' }}>{player.name}</div>
+                          <div style={{ fontSize: '0.85rem', color: '#718096' }}>{player.team}</div>
+                        </td>
+                        <td style={{ padding: '10px', textAlign: 'right', fontWeight: '700', fontSize: '1.1rem' }}>
+                          {player.apg}
+                        </td>
+                        <td style={{ padding: '10px', textAlign: 'right', color: '#718096' }}>{player.games}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '40px', color: '#718096' }}>
+              <p>No stats available yet. Play some games to see leader boards!</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {currentView === 'seasons' && (
+        <div className="card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <h2>🏆 Tournament Seasons</h2>
+            <button onClick={handleCreateNewRun} className="btn-primary">
+              + Start New Season
+            </button>
+          </div>
+          
+          {runs.length > 0 ? (
+            <div style={{ display: 'grid', gap: '20px' }}>
+              {runs.map((run) => (
+                <div 
+                  key={run.id}
+                  style={{
+                    background: run.is_active ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : 'white',
+                    color: run.is_active ? 'white' : '#1f2937',
+                    border: run.is_active ? 'none' : '2px solid #e2e8f0',
+                    borderRadius: '12px',
+                    padding: '20px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    boxShadow: run.is_active ? '0 4px 12px rgba(102, 126, 234, 0.3)' : '0 2px 8px rgba(0,0,0,0.08)'
+                  }}
+                >
+                  <div>
+                    <h3 style={{ margin: '0 0 8px 0', fontSize: '1.3rem' }}>
+                      {run.name} {run.is_active && '(Active)'}
+                    </h3>
+                    <div style={{ fontSize: '0.9rem', opacity: 0.9 }}>
+                      Year: {run.year} • 
+                      Status: {run.is_completed ? ' Completed' : ' In Progress'}
+                      {run.champion && <span> • Champion: {run.champion} 🏆</span>}
                     </div>
-                  ))}
+                  </div>
+                  
+                  {!run.is_active && (
+                    <button 
+                      onClick={() => handleSwitchRun(run.id)}
+                      style={{
+                        background: '#667eea',
+                        color: 'white',
+                        border: 'none',
+                        padding: '10px 20px',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        fontWeight: '600'
+                      }}
+                    >
+                      Switch to This Season
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
           ) : (
-            <p>No tournament data available. Initialize the tournament first.</p>
+            <div style={{ textAlign: 'center', padding: '40px', color: '#718096' }}>
+              <p>No seasons yet. Start your first season to begin the tournament!</p>
+            </div>
           )}
         </div>
       )}

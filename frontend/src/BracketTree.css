@@ -1,0 +1,132 @@
+.bracket-tree-container {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 20px;
+  background: #f8f9fa;
+}
+
+.bracket-tree {
+  display: flex;
+  gap: 40px;
+  min-width: fit-content;
+  padding: 20px;
+}
+
+.bracket-round {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 200px;
+}
+
+.round-header {
+  font-weight: bold;
+  font-size: 14px;
+  text-align: center;
+  padding: 10px;
+  background: #333;
+  color: white;
+  border-radius: 5px;
+  margin-bottom: 10px;
+}
+
+.round-series {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  flex: 1;
+  gap: 20px;
+}
+
+.bracket-matchup {
+  background: white;
+  border: 2px solid #ddd;
+  border-radius: 8px;
+  padding: 8px;
+  min-width: 180px;
+  position: relative;
+}
+
+.bracket-matchup.completed {
+  border-color: #28a745;
+  box-shadow: 0 2px 8px rgba(40, 167, 69, 0.2);
+}
+
+.bracket-matchup.active {
+  border-color: #007bff;
+  box-shadow: 0 2px 8px rgba(0, 123, 255, 0.2);
+}
+
+.team {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px;
+  margin: 2px 0;
+  border-radius: 4px;
+  background: #f8f9fa;
+  transition: all 0.2s;
+}
+
+.team.winner {
+  background: #d4edda;
+  border: 2px solid #28a745;
+  font-weight: bold;
+}
+
+.team-name {
+  flex: 1;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.team-wins {
+  font-weight: bold;
+  font-size: 16px;
+  margin-left: 8px;
+  min-width: 20px;
+  text-align: center;
+}
+
+.champion-banner {
+  text-align: center;
+  font-size: 24px;
+  font-weight: bold;
+  color: #ffc107;
+  background: #333;
+  padding: 20px;
+  margin-top: 20px;
+  border-radius: 10px;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .bracket-tree {
+    gap: 20px;
+  }
+  
+  .bracket-round {
+    min-width: 160px;
+  }
+  
+  .bracket-matchup {
+    min-width: 150px;
+  }
+  
+  .team-name {
+    font-size: 11px;
+  }
+}

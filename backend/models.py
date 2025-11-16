@@ -5,6 +5,21 @@ from datetime import datetime
 
 Base = declarative_base()
 
+class Run(Base):
+    __tablename__ = 'runs'
+    
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100), nullable=False)  # e.g., "Season 2025", "Dynasty Run 1"
+    year = Column(Integer)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    is_active = Column(Boolean, default=True)
+    is_completed = Column(Boolean, default=False)
+    champion_team_id = Column(Integer, ForeignKey('teams.id'), nullable=True)
+    
+    series = relationship("Series", back_populates="run")
+    games = relationship("Game", back_populates="run")
+    champion = relationship("Team", foreign_keys=[champion_team_id])
+
 class Team(Base):
     __tablename__ = 'teams'
     
@@ -54,6 +69,7 @@ class Game(Base):
     away_team_id = Column(Integer, ForeignKey('teams.id'))
     series_id = Column(Integer, ForeignKey('series.id'), nullable=True)
     game_number_in_series = Column(Integer, nullable=True)  # 1-7 for playoff series
+    run_id = Column(Integer, ForeignKey('runs.id'), nullable=True)
     
     # Final scores
     home_team_score = Column(Integer)
@@ -79,6 +95,7 @@ class Game(Base):
     home_team = relationship("Team", foreign_keys=[home_team_id], back_populates="home_games")
     away_team = relationship("Team", foreign_keys=[away_team_id], back_populates="away_games")
     series = relationship("Series", back_populates="games")
+    run = relationship("Run", back_populates="games")
     player_stats = relationship("PlayerGameStats", back_populates="game")
     play_by_play = relationship("PlayByPlay", back_populates="game", order_by="PlayByPlay.game_time_seconds")
 
@@ -94,11 +111,13 @@ class Series(Base):
     team2_wins = Column(Integer, default=0)
     winner_team_id = Column(Integer, ForeignKey('teams.id'), nullable=True)
     is_completed = Column(Boolean, default=False)
+    run_id = Column(Integer, ForeignKey('runs.id'), nullable=True)
     
     team1 = relationship("Team", foreign_keys=[team1_id])
     team2 = relationship("Team", foreign_keys=[team2_id])
     winner = relationship("Team", foreign_keys=[winner_team_id])
     games = relationship("Game", back_populates="series")
+    run = relationship("Run", back_populates="series")
 
 class PlayerGameStats(Base):
     __tablename__ = 'player_game_stats'

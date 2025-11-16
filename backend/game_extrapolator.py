@@ -72,8 +72,9 @@ class GameExtrapolator:
     def _generate_all_quarters(self, home_base_rate, away_base_rate, 
                                actual_quarter, actual_home_score, actual_away_score):
         """
-        Generate scores for all 4 quarters with realistic variance.
-        The actual played quarter uses real data, others are extrapolated.
+        Generate scores for all 4 quarters with realistic NBA variance.
+        Handles blowouts realistically - prevents 21-4 from becoming 84-16.
+        Uses regression to mean and momentum swings.
         """
         quarters = {
             'home': [0, 0, 0, 0],
@@ -84,27 +85,54 @@ class GameExtrapolator:
         quarters['home'][actual_quarter - 1] = actual_home_score
         quarters['away'][actual_quarter - 1] = actual_away_score
         
-        # Generate other quarters with variance
+        # Real NBA average: ~110 points per game = ~27.5 per quarter
+        nba_avg_rate = 27.5 / 12  # 2.29 points per minute
+        
+        # Detect if this was a blowout quarter
+        quarter_diff = abs(actual_home_score - actual_away_score)
+        is_blowout = quarter_diff > 10  # More than 10 point difference
+        
+        # For blowouts, regress MORE toward league average (prevent 84-16 games)
+        # For normal games, use actual performance more heavily
+        if is_blowout:
+            # Blowout: 40% input rate, 60% league average (strong regression)
+            home_adjusted_rate = (home_base_rate * 0.4) + (nba_avg_rate * 0.6)
+            away_adjusted_rate = (away_base_rate * 0.4) + (nba_avg_rate * 0.6)
+        else:
+            # Normal: 70% input rate, 30% league average
+            home_adjusted_rate = (home_base_rate * 0.7) + (nba_avg_rate * 0.3)
+            away_adjusted_rate = (away_base_rate * 0.7) + (nba_avg_rate * 0.3)
+        
+        # Generate other quarters with realistic NBA variance
         for q in range(4):
             if q == actual_quarter - 1:
                 continue  # Skip the actual played quarter
             
-            # Add variance to scoring rate (±20%)
-            home_variance = random.uniform(0.80, 1.20)
-            away_variance = random.uniform(0.80, 1.20)
+            # NBA variance: typically ±15% per quarter
+            home_variance = random.uniform(0.85, 1.15)
+            away_variance = random.uniform(0.85, 1.15)
             
-            # Simulate momentum/fatigue effects
-            if q == 3:  # 4th quarter - can be higher scoring (clutch time)
-                home_variance *= random.uniform(0.95, 1.15)
-                away_variance *= random.uniform(0.95, 1.15)
+            # Quarter-specific adjustments (real NBA patterns)
+            if q == 0:  # 1st quarter: slightly lower scoring (feeling out)
+                home_variance *= random.uniform(0.92, 1.05)
+                away_variance *= random.uniform(0.92, 1.05)
+            elif q == 1:  # 2nd quarter: normal pace
+                home_variance *= random.uniform(0.95, 1.10)
+                away_variance *= random.uniform(0.95, 1.10)
+            elif q == 2:  # 3rd quarter: often highest scoring
+                home_variance *= random.uniform(1.00, 1.15)
+                away_variance *= random.uniform(1.00, 1.15)
+            elif q == 3:  # 4th quarter: clutch time, can vary widely
+                home_variance *= random.uniform(0.90, 1.20)
+                away_variance *= random.uniform(0.90, 1.20)
             
             # Calculate quarter scores (12 minutes per quarter)
-            home_q_score = int(home_base_rate * 12 * home_variance)
-            away_q_score = int(away_base_rate * 12 * away_variance)
+            home_q_score = int(home_adjusted_rate * 12 * home_variance)
+            away_q_score = int(away_adjusted_rate * 12 * away_variance)
             
-            # Ensure realistic minimums
-            home_q_score = max(15, home_q_score)  # Minimum ~15 points per quarter
-            away_q_score = max(15, away_q_score)
+            # Realistic NBA quarter scoring range: 18-35 points typically
+            home_q_score = max(18, min(35, home_q_score))
+            away_q_score = max(18, min(35, away_q_score))
             
             quarters['home'][q] = home_q_score
             quarters['away'][q] = away_q_score

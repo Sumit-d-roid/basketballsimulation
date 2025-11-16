@@ -94,5 +94,13 @@ export const advanceRound = (roundNumber: number) => api.post(`/tournament/advan
 
 // Stats
 export const getPlayerStats = (playerId: number) => api.get(`/stats/player/${playerId}`);
+export const getStatLeaders = (params?: { run_id?: number; season?: 'current' | 'all' }) => 
+  api.get('/stats/leaders', { params });
+
+// Runs (Seasons)
+export const getRuns = () => api.get('/runs');
+export const getActiveRun = () => api.get('/runs/active');
+export const createRun = (data: { name?: string; year?: number }) => api.post('/runs', data);
+export const activateRun = (runId: number) => api.put(`/runs/${runId}/activate`);
 
 export default api;

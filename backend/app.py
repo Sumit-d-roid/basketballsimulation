@@ -37,17 +37,36 @@ tournament_mgr = TournamentManager()
 def auto_initialize_tournament():
     """Automatically create tournament bracket on startup if not exists"""
     try:
+        from models import Run
         session = get_session()
-        existing_series = session.query(Series).first()
+        
+        # Check if there's an active run
+        active_run = session.query(Run).filter_by(is_active=True).first()
+        
+        if not active_run:
+            # Create first run
+            print("No active run found. Creating initial season...")
+            active_run = Run(
+                name=f"Season {datetime.now().year}",
+                year=datetime.now().year,
+                is_active=True,
+                is_completed=False
+            )
+            session.add(active_run)
+            session.commit()
+            print(f"✓ Created initial run: {active_run.name}")
+        
+        # Check if tournament exists for active run
+        existing_series = session.query(Series).filter_by(run_id=active_run.id).first()
         if not existing_series:
-            print("No tournament found. Auto-initializing...")
-            result = tournament_mgr.create_tournament_bracket()
+            print(f"No tournament found for {active_run.name}. Auto-initializing...")
+            result = tournament_mgr.create_tournament_bracket(run_id=active_run.id)
             if result:
                 print(f"✓ Tournament auto-initialized with {result['round1_series']} Round 1 series")
             else:
                 print("⚠ Tournament initialization returned None (check team count)")
         else:
-            print("✓ Tournament already exists")
+            print(f"✓ Tournament already exists for {active_run.name}")
     except Exception as e:
         print(f"⚠ Error auto-initializing tournament: {e}")
 
@@ -368,6 +387,87 @@ def advance_round(round_number):
 
 # ==================== STATS ENDPOINTS ====================
 
+@app.route('/api/stats/leaders', methods=['GET'])
+def get_stat_leaders():
+    """Get league leaders in various statistical categories"""
+    from models import Run
+    session = get_session()
+    
+    # Get optional run_id filter (defaults to active run)
+    run_id = request.args.get('run_id', type=int)
+    season_filter = request.args.get('season', 'current')  # 'current' or 'all'
+    
+    # Determine which run(s) to query
+    if season_filter == 'all':
+        run_filter = None  # Don't filter by run
+    elif run_id:
+        run_filter = run_id
+    else:
+        # Default to active run
+        active_run = session.query(Run).filter_by(is_active=True).first()
+        run_filter = active_run.id if active_run else None
+    
+    # Get all players with their aggregate stats from games played
+    from sqlalchemy import func
+    
+    # Base query builder
+    def build_leader_query(stat_field, label):
+        query = session.query(
+            Player.id,
+            Player.name,
+            Team.city,
+            Team.name.label('team_name'),
+            func.avg(stat_field).label(label),
+            func.count(PlayerGameStats.id).label('games_played')
+        ).select_from(Player)\
+         .join(PlayerGameStats, Player.id == PlayerGameStats.player_id)\
+         .join(Team, Player.team_id == Team.id)
+        
+        # Add run filter if specified
+        if run_filter:
+            query = query.join(Game, PlayerGameStats.game_id == Game.id)\
+                         .filter(Game.run_id == run_filter)
+        
+        return query.group_by(Player.id, Player.name, Team.city, Team.name)\
+                    .having(func.count(PlayerGameStats.id) >= 1)\
+                    .order_by(func.avg(stat_field).desc()).limit(10).all()
+    
+    # Points leaders
+    points_leaders = build_leader_query(PlayerGameStats.points, 'ppg')
+    
+    # Rebounds leaders
+    rebounds_leaders = build_leader_query(PlayerGameStats.rebounds, 'rpg')
+    
+    # Assists leaders
+    assists_leaders = build_leader_query(PlayerGameStats.assists, 'apg')
+    
+    return jsonify({
+        'scoring_leaders': [{
+            'rank': i + 1,
+            'player_id': p.id,
+            'name': p.name,
+            'team': f"{p.city} {p.team_name}",
+            'ppg': round(p.ppg, 1),
+            'games': p.games_played
+        } for i, p in enumerate(points_leaders)],
+        'rebounding_leaders': [{
+            'rank': i + 1,
+            'player_id': p.id,
+            'name': p.name,
+            'team': f"{p.city} {p.team_name}",
+            'rpg': round(p.rpg, 1),
+            'games': p.games_played
+        } for i, p in enumerate(rebounds_leaders)],
+        'assists_leaders': [{
+            'rank': i + 1,
+            'player_id': p.id,
+            'name': p.name,
+            'team': f"{p.city} {p.team_name}",
+            'apg': round(p.apg, 1),
+            'games': p.games_played
+        } for i, p in enumerate(assists_leaders)]
+    })
+
 @app.route('/api/stats/player/<int:player_id>', methods=['GET'])
 def get_player_stats(player_id):
     """Get all game stats for a player"""
@@ -402,6 +502,97 @@ def get_player_stats(player_id):
             'fg': f"{s.fgm}/{s.fga}",
             'plus_minus': s.plus_minus
         } for s in stats]
+    })
+
+# ==================== RUN MANAGEMENT ENDPOINTS ====================
+
+@app.route('/api/runs', methods=['GET'])
+def get_runs():
+    """Get all tournament runs/seasons"""
+    from models import Run
+    session = get_session()
+    runs = session.query(Run).order_by(Run.year.desc()).all()
+    
+    return jsonify([{
+        'id': r.id,
+        'name': r.name,
+        'year': r.year,
+        'created_at': r.created_at.isoformat() if r.created_at else None,
+        'is_active': r.is_active,
+        'is_completed': r.is_completed,
+        'champion': f"{r.champion.city} {r.champion.name}" if r.champion else None
+    } for r in runs])
+
+@app.route('/api/runs', methods=['POST'])
+def create_run():
+    """Create a new tournament run/season"""
+    from models import Run
+    data = request.get_json()
+    
+    session = get_session()
+    
+    # Deactivate all existing runs
+    session.query(Run).update({'is_active': False})
+    
+    # Create new run
+    new_run = Run(
+        name=data.get('name', f"Season {data.get('year', datetime.now().year)}"),
+        year=data.get('year', datetime.now().year),
+        is_active=True,
+        is_completed=False
+    )
+    session.add(new_run)
+    session.commit()
+    
+    # Initialize tournament for this run
+    result = tournament_mgr.create_tournament_bracket(run_id=new_run.id)
+    
+    return jsonify({
+        'id': new_run.id,
+        'name': new_run.name,
+        'year': new_run.year,
+        'tournament_created': result is not None
+    })
+
+@app.route('/api/runs/<int:run_id>/activate', methods=['PUT'])
+def activate_run(run_id):
+    """Switch to a different run/season"""
+    from models import Run
+    session = get_session()
+    
+    # Deactivate all runs
+    session.query(Run).update({'is_active': False})
+    
+    # Activate selected run
+    run = session.query(Run).filter_by(id=run_id).first()
+    if not run:
+        return jsonify({'error': 'Run not found'}), 404
+    
+    run.is_active = True
+    session.commit()
+    
+    return jsonify({
+        'id': run.id,
+        'name': run.name,
+        'is_active': True
+    })
+
+@app.route('/api/runs/active', methods=['GET'])
+def get_active_run():
+    """Get currently active run"""
+    from models import Run
+    session = get_session()
+    run = session.query(Run).filter_by(is_active=True).first()
+    
+    if not run:
+        return jsonify({'error': 'No active run'}), 404
+    
+    return jsonify({
+        'id': run.id,
+        'name': run.name,
+        'year': run.year,
+        'is_completed': run.is_completed,
+        'champion': f"{run.champion.city} {run.champion.name}" if run.champion else None
     })
 
 """
