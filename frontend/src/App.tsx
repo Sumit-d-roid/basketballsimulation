@@ -2,22 +2,6 @@ import React, { useState, useEffect } from 'react';
 import './App.css';
 import * as api from './api';
 
-interface Team {
-  id: number;
-  name: string;
-  city: string;
-  full_name: string;
-  abbreviation: string;
-}
-
-interface GameResult {
-  game_id: number;
-  final_score: {
-    home: number;
-    away: number;
-  };
-}
-
 interface Series {
   id: number;
   round: number;
@@ -30,21 +14,17 @@ interface Series {
 
 function App() {
   const [currentView, setCurrentView] = useState('create-game');
-  const [teams, setTeams] = useState<Team[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   
   // Game creation form
-  const [homeTeamId, setHomeTeamId] = useState('');
-  const [awayTeamId, setAwayTeamId] = useState('');
   const [quarterNumber, setQuarterNumber] = useState('1');
   const [homeScore, setHomeScore] = useState('');
   const [awayScore, setAwayScore] = useState('');
   const [selectedSeries, setSelectedSeries] = useState('');
   
   // Results
-  const [gameResult, setGameResult] = useState<any>(null);
   const [activeSeries, setActiveSeries] = useState<Series[]>([]);
   const [tournamentData, setTournamentData] = useState<any>(null);
   const [games, setGames] = useState<any[]>([]);
@@ -52,24 +32,16 @@ function App() {
   const [playByPlay, setPlayByPlay] = useState<any[]>([]);
 
   useEffect(() => {
-    loadTeams();
+    // Load active series on mount
+    loadActiveSeries();
   }, []);
-
-  const loadTeams = async () => {
-    try {
-      const response = await api.getTeams();
-      setTeams(response.data);
-    } catch (err: any) {
-      setError('Failed to load teams: ' + err.message);
-    }
-  };
 
   const loadActiveSeries = async () => {
     try {
       const response = await api.getActiveSeries();
       setActiveSeries(response.data);
     } catch (err: any) {
-      setError('Failed to load active series: ' + err.message);
+      console.error('Failed to load active series:', err.message);
     }
   };
 
@@ -104,21 +76,33 @@ function App() {
     setLoading(true);
 
     try {
+      // Get series details to extract team IDs
+      if (!selectedSeries) {
+        setError('Please select a series first');
+        setLoading(false);
+        return;
+      }
+
+      const seriesResponse = await api.getSeries(parseInt(selectedSeries));
+      const seriesData = seriesResponse.data;
+
       const response = await api.createGame({
-        home_team_id: parseInt(homeTeamId),
-        away_team_id: parseInt(awayTeamId),
+        home_team_id: seriesData.team1.id,
+        away_team_id: seriesData.team2.id,
         quarter_number: parseInt(quarterNumber),
         home_score: parseInt(homeScore),
         away_score: parseInt(awayScore),
-        series_id: selectedSeries ? parseInt(selectedSeries) : undefined
+        series_id: parseInt(selectedSeries)
       });
 
-      setGameResult(response.data);
       setSuccess('Game created and simulated successfully!');
       
       // Load the full game details
       const gameDetails = await api.getGame(response.data.game_id);
       setSelectedGame(gameDetails.data);
+      
+      // Reload active series to update scores
+      await loadActiveSeries();
       
       setLoading(false);
       
@@ -205,43 +189,59 @@ function App() {
 
       {currentView === 'create-game' && (
         <div className="card">
-          <h2>Simulate a Game</h2>
+          <h2>Enter Game Score</h2>
           <p style={{ color: '#718096', marginBottom: '20px' }}>
-            Input the score from ONE quarter you played, and the system will extrapolate a full 48-minute game!
+            Select an active series below and input the score from ONE quarter you played. The system will extrapolate a full 48-minute game!
           </p>
 
-          <button 
-            onClick={handleInitTournament} 
-            style={{ marginBottom: '20px', width: 'auto', padding: '10px 20px' }}
-            className="btn-primary"
-          >
-            Initialize Tournament
-          </button>
-
-          <form onSubmit={handleCreateGame}>
-            <div className="form-group">
-              <label>Home Team</label>
-              <select value={homeTeamId} onChange={(e) => setHomeTeamId(e.target.value)} required>
-                <option value="">Select Home Team</option>
-                {teams.map(team => (
-                  <option key={team.id} value={team.id}>
-                    {team.full_name}
-                  </option>
-                ))}
-              </select>
+          {activeSeries.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '40px' }}>
+              <p style={{ color: '#718096', marginBottom: '20px' }}>No active series found. Tournament may not be initialized.</p>
+              <button 
+                onClick={handleInitTournament} 
+                className="btn-primary"
+              >
+                Initialize Tournament
+              </button>
             </div>
+          ) : (
+            <>
+              <div style={{ marginBottom: '30px' }}>
+                <h3 style={{ marginBottom: '15px' }}>Active Series (Round {activeSeries[0]?.round || 1})</h3>
+                <div style={{ display: 'grid', gap: '10px', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
+                  {activeSeries.map(series => (
+                    <div 
+                      key={series.id}
+                      onClick={() => {
+                        setSelectedSeries(series.id.toString());
+                      }}
+                      style={{
+                        padding: '15px',
+                        border: selectedSeries === series.id.toString() ? '2px solid #3182ce' : '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        backgroundColor: selectedSeries === series.id.toString() ? '#ebf8ff' : 'white'
+                      }}
+                    >
+                      <div style={{ fontWeight: '600', fontSize: '14px' }}>{series.team1}</div>
+                      <div style={{ textAlign: 'center', padding: '8px 0', color: '#718096' }}>vs</div>
+                      <div style={{ fontWeight: '600', fontSize: '14px' }}>{series.team2}</div>
+                      <div style={{ textAlign: 'center', marginTop: '8px', color: '#3182ce', fontSize: '16px', fontWeight: '700' }}>
+                        {series.score}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
 
-            <div className="form-group">
-              <label>Away Team</label>
-              <select value={awayTeamId} onChange={(e) => setAwayTeamId(e.target.value)} required>
-                <option value="">Select Away Team</option>
-                {teams.map(team => (
-                  <option key={team.id} value={team.id}>
-                    {team.full_name}
-                  </option>
-                ))}
-              </select>
-            </div>
+              {selectedSeries && (
+                <form onSubmit={handleCreateGame}>
+                  <div style={{ backgroundColor: '#f7fafc', padding: '20px', borderRadius: '8px', marginBottom: '20px' }}>
+                    <h3 style={{ marginBottom: '15px' }}>Selected Series</h3>
+                    <p style={{ fontSize: '18px', fontWeight: '600' }}>
+                      {activeSeries.find(s => s.id.toString() === selectedSeries)?.team1} vs {activeSeries.find(s => s.id.toString() === selectedSeries)?.team2}
+                    </p>
+                  </div>
 
             <div className="form-group">
               <label>Which Quarter Did You Play?</label>
@@ -254,47 +254,47 @@ function App() {
             </div>
 
             <div className="form-group">
-              <label>Home Team Score (in that quarter)</label>
-              <input 
-                type="number" 
-                value={homeScore} 
-                onChange={(e) => setHomeScore(e.target.value)}
-                placeholder="e.g., 28"
-                required
-                min="0"
-              />
-            </div>
-
-            <div className="form-group">
-              <label>Away Team Score (in that quarter)</label>
-              <input 
-                type="number" 
-                value={awayScore} 
-                onChange={(e) => setAwayScore(e.target.value)}
-                placeholder="e.g., 25"
-                required
-                min="0"
-              />
-            </div>
-
-            {activeSeries.length > 0 && (
-              <div className="form-group">
-                <label>Link to Series (Optional)</label>
-                <select value={selectedSeries} onChange={(e) => setSelectedSeries(e.target.value)}>
-                  <option value="">No Series (Standalone Game)</option>
-                  {activeSeries.map(series => (
-                    <option key={series.id} value={series.id}>
-                      {series.team1} vs {series.team2} ({series.score})
-                    </option>
-                  ))}
-                </select>
+              <label>Score in that Quarter</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: '10px', alignItems: 'center' }}>
+                <div>
+                  <label style={{ fontSize: '0.9rem', color: '#718096' }}>
+                    {activeSeries.find(s => s.id.toString() === selectedSeries)?.team1.split(' ').pop()} (Home)
+                  </label>
+                  <input 
+                    type="number" 
+                    value={homeScore} 
+                    onChange={(e) => setHomeScore(e.target.value)}
+                    placeholder="28"
+                    required
+                    min="0"
+                    style={{ width: '100%' }}
+                  />
+                </div>
+                <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#718096' }}>-</div>
+                <div>
+                  <label style={{ fontSize: '0.9rem', color: '#718096' }}>
+                    {activeSeries.find(s => s.id.toString() === selectedSeries)?.team2.split(' ').pop()} (Away)
+                  </label>
+                  <input 
+                    type="number" 
+                    value={awayScore} 
+                    onChange={(e) => setAwayScore(e.target.value)}
+                    placeholder="25"
+                    required
+                    min="0"
+                    style={{ width: '100%' }}
+                  />
+                </div>
               </div>
-            )}
+            </div>
 
             <button type="submit" className="btn-primary" disabled={loading}>
-              {loading ? 'Simulating...' : 'Simulate Full Game'}
+              {loading ? 'Simulating Full Game...' : 'Simulate Full 48-Minute Game'}
             </button>
           </form>
+              )}
+            </>
+          )}
 
           {selectedGame && (
             <div className="game-result">
