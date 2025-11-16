@@ -43,5 +43,5 @@ EXPOSE 8080
 # Set environment variable for Python unbuffered output
 ENV PYTHONUNBUFFERED=1
 
-# Start gunicorn using exec form with shell
-CMD ["sh", "-c", "gunicorn -w 4 -b 0.0.0.0:${PORT:-8080} app:app"]
+# Start using Python wrapper script (no shell needed)
+CMD ["python3", "start_gunicorn.py"]
