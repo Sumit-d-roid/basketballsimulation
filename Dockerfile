@@ -4,9 +4,10 @@ FROM python:3.9-slim
 # Set working directory
 WORKDIR /app
 
-# Install Node.js for frontend build
+# Install Node.js and bash for frontend build
 RUN apt-get update && apt-get install -y \
     curl \
+    bash \
     && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
     && apt-get install -y nodejs \
     && apt-get clean \
@@ -42,5 +43,5 @@ RUN chmod +x start.sh
 # Expose port (Railway will set PORT env variable)
 EXPOSE 8080
 
-# Start the application
-CMD ["./start.sh"]
+# Start the application using bash
+CMD ["/bin/bash", "./start.sh"]
