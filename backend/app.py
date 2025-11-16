@@ -508,6 +508,84 @@ def get_series_games(series_id):
 
 # ==================== STATS ENDPOINTS ====================
 
+@app.route('/api/stats/leaders', methods=['GET'])
+def get_stat_leaders():
+    """Get league leaders in various statistical categories"""
+    from sqlalchemy import func
+    session = get_session()
+    
+    # Get optional run_id filter (defaults to active run)
+    run_id = request.args.get('run_id', type=int)
+    season_filter = request.args.get('season', 'current')  # 'current' or 'all'
+    
+    # Determine which run(s) to query
+    if season_filter == 'all':
+        run_filter = None  # Don't filter by run
+    elif run_id:
+        run_filter = run_id
+    else:
+        # Default to active run
+        active_run = session.query(Run).filter_by(is_active=True).first()
+        run_filter = active_run.id if active_run else None
+    
+    # Base query builder
+    def build_leader_query(stat_field, label):
+        query = session.query(
+            Player.id,
+            Player.name,
+            Team.city,
+            Team.name.label('team_name'),
+            func.avg(stat_field).label(label),
+            func.count(PlayerGameStats.id).label('games_played')
+        ).select_from(Player)\
+         .join(PlayerGameStats, Player.id == PlayerGameStats.player_id)\
+         .join(Team, Player.team_id == Team.id)
+        
+        # Add run filter if specified
+        if run_filter:
+            query = query.join(Game, PlayerGameStats.game_id == Game.id)\
+                         .filter(Game.run_id == run_filter)
+        
+        return query.group_by(Player.id, Player.name, Team.city, Team.name)\
+                    .having(func.count(PlayerGameStats.id) >= 1)\
+                    .order_by(func.avg(stat_field).desc()).limit(10).all()
+    
+    # Points leaders
+    points_leaders = build_leader_query(PlayerGameStats.points, 'ppg')
+    
+    # Rebounds leaders
+    rebounds_leaders = build_leader_query(PlayerGameStats.rebounds, 'rpg')
+    
+    # Assists leaders
+    assists_leaders = build_leader_query(PlayerGameStats.assists, 'apg')
+    
+    return jsonify({
+        'scoring_leaders': [{
+            'rank': i + 1,
+            'player_id': p.id,
+            'name': p.name,
+            'team': f"{p.city} {p.team_name}",
+            'ppg': round(p.ppg, 1),
+            'games': p.games_played
+        } for i, p in enumerate(points_leaders)],
+        'rebounding_leaders': [{
+            'rank': i + 1,
+            'player_id': p.id,
+            'name': p.name,
+            'team': f"{p.city} {p.team_name}",
+            'rpg': round(p.rpg, 1),
+            'games': p.games_played
+        } for i, p in enumerate(rebounds_leaders)],
+        'assists_leaders': [{
+            'rank': i + 1,
+            'player_id': p.id,
+            'name': p.name,
+            'team': f"{p.city} {p.team_name}",
+            'apg': round(p.apg, 1),
+            'games': p.games_played
+        } for i, p in enumerate(assists_leaders)]
+    })
+
 @app.route('/api/stats/input-performance', methods=['GET'])
 def get_input_performance():
     """Get aggregated stats from user's quarter inputs"""
