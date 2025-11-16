@@ -685,25 +685,31 @@ def get_active_run():
 # Use absolute path from /app root
 FRONTEND_BUILD_DIR = '/app/frontend/build'
 
-# Serve static files (CSS, JS, etc.) - this must come before the catch-all route
-@app.route('/static/<path:filename>')
-def serve_static(filename):
-    static_dir = os.path.join(FRONTEND_BUILD_DIR, 'static')
-    return send_from_directory(static_dir, filename)
+# Serve static files (CSS, JS, etc.)
+@app.route('/static/css/<path:filename>')
+def serve_css(filename):
+    return send_from_directory(os.path.join(FRONTEND_BUILD_DIR, 'static', 'css'), filename)
+
+@app.route('/static/js/<path:filename>')
+def serve_js(filename):
+    return send_from_directory(os.path.join(FRONTEND_BUILD_DIR, 'static', 'js'), filename)
 
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve_frontend(path):
-    # Don't serve static files through this route (already handled above)
-    if path.startswith('static/'):
+    # API routes should not be caught here
+    if path.startswith('api/'):
         return jsonify({'error': 'Not found'}), 404
     
     target = os.path.join(FRONTEND_BUILD_DIR, path)
     if path and os.path.exists(target) and os.path.isfile(target):
         return send_from_directory(FRONTEND_BUILD_DIR, path)
+    
+    # Always serve index.html for frontend routes
     index_path = os.path.join(FRONTEND_BUILD_DIR, 'index.html')
     if os.path.exists(index_path):
         return send_from_directory(FRONTEND_BUILD_DIR, 'index.html')
+    
     return jsonify({'error': 'Frontend not built. Run npm run build in frontend/'}), 404
 
 if __name__ == '__main__':
