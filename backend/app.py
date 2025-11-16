@@ -685,9 +685,19 @@ def get_active_run():
 # Use absolute path from /app root
 FRONTEND_BUILD_DIR = '/app/frontend/build'
 
+# Serve static files (CSS, JS, etc.) - this must come before the catch-all route
+@app.route('/static/<path:filename>')
+def serve_static(filename):
+    static_dir = os.path.join(FRONTEND_BUILD_DIR, 'static')
+    return send_from_directory(static_dir, filename)
+
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve_frontend(path):
+    # Don't serve static files through this route (already handled above)
+    if path.startswith('static/'):
+        return jsonify({'error': 'Not found'}), 404
+    
     target = os.path.join(FRONTEND_BUILD_DIR, path)
     if path and os.path.exists(target) and os.path.isfile(target):
         return send_from_directory(FRONTEND_BUILD_DIR, path)
