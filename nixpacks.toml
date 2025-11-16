@@ -1,0 +1,16 @@
+[phases.setup]
+nixPkgs = ["python39", "nodejs-18_x"]
+
+[phases.install]
+cmds = [
+  "pip install -r backend/requirements.txt"
+]
+
+[phases.build]
+cmds = [
+  "cd backend && if [ ! -f basketball_sim.db ]; then python seed_data.py && python add_free_agents.py; fi",
+  "cd frontend && npm install && npm run build"
+]
+
+[start]
+cmd = "./start.sh"

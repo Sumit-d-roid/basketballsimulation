@@ -1,0 +1,42 @@
+# Railway ignore file - exclude from deployment
+
+# Development
+.devcontainer/
+.vscode/
+.git/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Node modules (will be installed during build)
+frontend/node_modules/
+
+# Local environment
+.env
+.env.local
+*.log
+
+# Backup files
+*.backup
+*_old.py
+app_old.py
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test files
+*.test.js
+*.test.py
+test/
+tests/
+
+# Documentation (optional - remove if you want docs deployed)
+*.md
+!README.md
+
+# Build artifacts (will be created during build)
+frontend/build/
+backend/venv/
