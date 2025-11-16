@@ -1,16 +1,44 @@
-# 🏀 Basketball Simulation
+# 🏀 Basketball Tournament Simulation
 
-An advanced basketball game simulation system that extrapolates full 48-minute NBA games from a single quarter of real gameplay. Features a 34-team tournament with best-of-7 series, realistic player stats, play-by-play logs, and ESPN-style stat tracking.
+A full-stack web application that turns your real pickup basketball games into full NBA simulations! Play one quarter of basketball, input the scores, and watch the system extrapolate it into a complete 48-minute game with realistic variance. Run 32-team tournaments and crown champions!
+
+## ✨ What Makes This Unique
+
+This isn't just a tournament simulator - it's a **real-life basketball game extrapolator**:
+1. **Play Real Basketball**: You and friends play one quarter (12 minutes) of pickup basketball
+2. **Input Actual Scores**: Enter the real final score from your quarter (e.g., Team A: 28, Team B: 25)
+3. **AI Extrapolation**: System generates a full 48-minute game using your quarter as a seed
+4. **Realistic Variance**: Applies NBA-style variance (±15% per quarter) with regression to mean
+5. **Tournament Progression**: Use extrapolated games to advance through a 32-team playoff bracket
+
+## 🚀 Quick Start (Ready NOW!)
+
+```bash
+# Start both servers
+./run.sh
+
+# Or manually:
+# Terminal 1 - Backend
+cd backend && python app.py
+
+# Terminal 2 - Frontend  
+cd frontend && npm start
+```
+
+**Open http://localhost:3000** and start your tournament!
 
 ## 🎯 Features
 
-- **Score Extrapolation**: Input just ONE quarter score, get a full realistic 48-minute game
-- **32 Teams**: 30 NBA teams + 2 G-League teams
-- **Real Players**: 2025-26 NBA rosters with realistic baseline stats
-- **Tournament System**: Best-of-7 series in knockout format
-- **Advanced Stats**: PER, True Shooting %, Usage Rate, Plus/Minus, and more
-- **Play-by-Play Logs**: ESPN-style detailed game logs for every possession
-- **Modern Web Interface**: Beautiful React frontend for easy interaction
+- ✅ **32 NBA Teams** with full real rosters (320 players)
+- ✅ **80 Free Agents** (legends like D-Wade, Dirk, international stars)
+- ✅ **Smart Game Extrapolation** (quarter → full game with NBA variance)
+- ✅ **Best-of-7 Playoff Series** (5 rounds, East/West conferences)
+- ✅ **Play-by-Play Generation** (quarter-by-quarter breakdowns)
+- ✅ **Player Stats Tracking** (PPG, RPG, APG per tournament)
+- ✅ **Free Agent System** (sign, release, trade players)
+- ✅ **Database Backups** (JSON export + SQLite download)
+- ✅ **Input Performance Tracking** (your quarter score history)
+- ✅ **Game History Feed** (recent games with classification)
 
 ## 🏗️ Project Structure
 

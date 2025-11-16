@@ -111,6 +111,22 @@ export const getTeamStats = (params?: { run_id?: number; season?: 'current' | 'a
   api.get('/stats/teams', { params });
 export const getHeadToHead = (team1Id: number, team2Id: number) =>
   api.get(`/stats/head-to-head?team1_id=${team1Id}&team2_id=${team2Id}`);
+export const getInputPerformance = (runId?: number) =>
+  api.get('/stats/input-performance', { params: { run_id: runId } });
+export const getGameHistory = (params?: { limit?: number; run_id?: number; team_id?: number }) =>
+  api.get('/games/history', { params });
+
+// Database Backup
+export const exportDatabaseJSON = () => api.get('/backup/export', { responseType: 'blob' });
+export const downloadDatabaseFile = () => api.get('/backup/download-db', { responseType: 'blob' });
+
+// Free Agents
+export const getFreeAgents = () => api.get('/free-agents');
+export const signPlayer = (playerId: number, teamId: number) => 
+  api.post(`/players/${playerId}/sign`, { team_id: teamId });
+export const releasePlayer = (playerId: number) => api.post(`/players/${playerId}/release`);
+export const tradePlayers = (data: { player_ids_team1: number[]; player_ids_team2: number[] }) =>
+  api.post('/players/trade', data);
 
 // Runs (Seasons)
 export const getRuns = () => api.get('/runs');

@@ -1,21 +1,24 @@
 from flask import Flask, request, jsonify, send_from_directory
 import os
 from flask_cors import CORS
-from models import Team, Player, Game, Series, PlayerGameStats, PlayByPlay, get_session
+from models import Team, Player, Game, Series, PlayerGameStats, PlayByPlay, Run, get_session
 from game_extrapolator import GameExtrapolator
 from play_by_play_generator import PlayByPlayGenerator
 from tournament_manager import TournamentManager
 from datetime import datetime
 
+# Import blueprints
+from routes.teams import teams_bp
+from routes.free_agents import free_agents_bp
+from routes.backup import backup_bp
+
 app = Flask(__name__)
-# Allow CORS for all API routes; Codespaces uses unique HTTPS origins per port
 CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 
-# Extra safety: ensure CORS headers are always present (incl. preflight support)
+# CORS headers
 @app.after_request
 def add_cors_headers(response):
     origin = request.headers.get('Origin')
-    # Echo specific Origin when provided (better for some proxies) else fallback to *
     response.headers['Access-Control-Allow-Origin'] = origin if origin else '*'
     response.headers['Vary'] = 'Origin'
     response.headers['Access-Control-Allow-Credentials'] = 'true'
@@ -23,28 +26,28 @@ def add_cors_headers(response):
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
     return response
 
-# Handle preflight explicitly for any /api/* route (some proxies require this)
 @app.route('/api/<path:any_path>', methods=['OPTIONS'])
 def api_preflight(any_path):
     return ('', 204)
+
+# Register blueprints
+app.register_blueprint(teams_bp, url_prefix='/api')
+app.register_blueprint(free_agents_bp, url_prefix='/api')
+app.register_blueprint(backup_bp, url_prefix='/api')
 
 # Initialize services
 extrapolator = GameExtrapolator()
 pbp_generator = PlayByPlayGenerator()
 tournament_mgr = TournamentManager()
 
-# Auto-initialize tournament if not exists
+# Auto-initialize tournament
 def auto_initialize_tournament():
     """Automatically create tournament bracket on startup if not exists"""
     try:
-        from models import Run
         session = get_session()
-        
-        # Check if there's an active run
         active_run = session.query(Run).filter_by(is_active=True).first()
         
         if not active_run:
-            # Create first run
             print("No active run found. Creating initial season...")
             active_run = Run(
                 name=f"Season {datetime.now().year}",
@@ -56,7 +59,6 @@ def auto_initialize_tournament():
             session.commit()
             print(f"✓ Created initial run: {active_run.name}")
         
-        # Check if tournament exists for active run
         existing_series = session.query(Series).filter_by(run_id=active_run.id).first()
         if not existing_series:
             print(f"No tournament found for {active_run.name}. Auto-initializing...")
@@ -70,7 +72,6 @@ def auto_initialize_tournament():
     except Exception as e:
         print(f"⚠ Error auto-initializing tournament: {e}")
 
-# Call auto-initialization
 auto_initialize_tournament()
 
 @app.route('/api/health', methods=['GET'])
@@ -78,72 +79,11 @@ def health_check():
     """Health check endpoint"""
     return jsonify({'status': 'healthy', 'message': 'Basketball Simulation API is running'})
 
-# ==================== TEAM ENDPOINTS ====================
-
-@app.route('/api/teams', methods=['GET'])
-def get_teams():
-    """Get all teams"""
-    session = get_session()
-    teams = session.query(Team).all()
-    
-    return jsonify([{
-        'id': t.id,
-        'name': t.name,
-        'city': t.city,
-        'abbreviation': t.abbreviation,
-        'conference': t.conference,
-        'division': t.division,
-        'team_type': t.team_type,
-        'full_name': f"{t.city} {t.name}"
-    } for t in teams])
-
-@app.route('/api/teams/<int:team_id>', methods=['GET'])
-def get_team(team_id):
-    """Get specific team with roster"""
-    session = get_session()
-    team = session.query(Team).filter_by(id=team_id).first()
-    
-    if not team:
-        return jsonify({'error': 'Team not found'}), 404
-    
-    players = [{
-        'id': p.id,
-        'name': p.name,
-        'position': p.position,
-        'jersey_number': p.jersey_number,
-        'height': p.height,
-        'weight': p.weight,
-        'ppg': p.ppg,
-        'rpg': p.rpg,
-        'apg': p.apg,
-        'fg_pct': p.fg_pct,
-        'three_pt_pct': p.three_pt_pct
-    } for p in team.players]
-    
-    return jsonify({
-        'id': team.id,
-        'name': team.name,
-        'city': team.city,
-        'abbreviation': team.abbreviation,
-        'conference': team.conference,
-        'full_name': f"{team.city} {team.name}",
-        'players': players
-    })
-
 # ==================== GAME ENDPOINTS ====================
 
 @app.route('/api/games/preview', methods=['POST'])
 def preview_game():
-    """
-    Preview extrapolated game scores without creating the game.
-    Body: {
-        "home_team_id": 1,
-        "away_team_id": 2,
-        "quarter_number": 1,
-        "home_score": 28,
-        "away_score": 25
-    }
-    """
+    """Preview extrapolated game scores without creating the game"""
     data = request.json
     
     try:
@@ -153,11 +93,9 @@ def preview_game():
         home_score = data['home_score']
         away_score = data['away_score']
         
-        # Validate quarter number
         if quarter_number not in [1, 2, 3, 4]:
             return jsonify({'error': 'Quarter number must be 1-4'}), 400
         
-        # Get team names
         session = get_session()
         home_team = session.query(Team).filter_by(id=home_team_id).first()
         away_team = session.query(Team).filter_by(id=away_team_id).first()
@@ -165,7 +103,6 @@ def preview_game():
         if not home_team or not away_team:
             return jsonify({'error': 'Invalid team IDs'}), 400
         
-        # Calculate base rates and generate quarters preview
         home_base_rate = home_score / 12
         away_base_rate = away_score / 12
         
@@ -197,17 +134,7 @@ def preview_game():
 
 @app.route('/api/games/create', methods=['POST'])
 def create_game():
-    """
-    Create and simulate a game from quarter input.
-    Body: {
-        "home_team_id": 1,
-        "away_team_id": 2,
-        "quarter_number": 1,
-        "home_score": 28,
-        "away_score": 25,
-        "series_id": null (optional)
-    }
-    """
+    """Create and simulate a game from quarter input"""
     data = request.json
     
     try:
@@ -218,27 +145,22 @@ def create_game():
         away_score = data['away_score']
         series_id = data.get('series_id')
         
-        # Validate quarter number
         if quarter_number not in [1, 2, 3, 4]:
             return jsonify({'error': 'Quarter number must be 1-4'}), 400
         
-        # Create game with extrapolation
         game = extrapolator.extrapolate_game(
             home_team_id, away_team_id, 
             quarter_number, home_score, away_score
         )
         
-        # Link to series if provided
         if series_id:
             game.series_id = series_id
             game.game_number_in_series = len([g for g in extrapolator.session.query(Game).filter_by(series_id=series_id).all()]) + 1
             extrapolator.session.commit()
             
-            # Update series standings
             winner_id = game.home_team_id if game.home_team_score > game.away_team_score else game.away_team_id
             tournament_mgr.update_series_result(series_id, winner_id)
         
-        # Generate play-by-play
         pbp_generator.generate_play_by_play(game)
         
         return jsonify({
@@ -264,7 +186,6 @@ def get_game(game_id):
     if not game:
         return jsonify({'error': 'Game not found'}), 404
     
-    # Get box scores
     home_stats = session.query(PlayerGameStats).filter_by(
         game_id=game_id, team_id=game.home_team_id
     ).all()
@@ -349,11 +270,9 @@ def delete_game(game_id):
     if not game:
         return jsonify({'error': 'Game not found'}), 404
     
-    # Revert series wins if game was part of a series
     if game.series_id:
         series = session.query(Series).filter_by(id=game.series_id).first()
         if series:
-            # Decrease win count for the team that won this game
             if game.home_team_score > game.away_team_score:
                 if series.team1_id == game.home_team_id:
                     series.team1_wins = max(0, series.team1_wins - 1)
@@ -365,11 +284,9 @@ def delete_game(game_id):
                 else:
                     series.team2_wins = max(0, series.team2_wins - 1)
             
-            # Reset series completion status
             series.is_completed = False
             series.winner_team_id = None
     
-    # Delete associated records
     session.query(PlayerGameStats).filter_by(game_id=game_id).delete()
     session.query(PlayByPlay).filter_by(game_id=game_id).delete()
     session.delete(game)
@@ -392,6 +309,78 @@ def get_all_games():
         'series_id': g.series_id
     } for g in games])
 
+@app.route('/api/games/history', methods=['GET'])
+def get_game_history():
+    """Get recent games with detailed info (game feed)"""
+    session = get_session()
+    
+    run_id = request.args.get('run_id', type=int)
+    limit = request.args.get('limit', type=int, default=20)
+    team_id = request.args.get('team_id', type=int)
+    
+    query = session.query(Game).filter(Game.is_completed == True)
+    
+    if run_id:
+        query = query.filter(Game.run_id == run_id)
+    
+    if team_id:
+        query = query.filter(
+            (Game.home_team_id == team_id) | (Game.away_team_id == team_id)
+        )
+    
+    games = query.order_by(Game.game_date.desc()).limit(limit).all()
+    
+    result = []
+    for g in games:
+        home_won = g.home_team_score > g.away_team_score
+        margin = abs(g.home_team_score - g.away_team_score)
+        
+        if margin <= 3:
+            game_type = "Nail-biter"
+        elif margin <= 10:
+            game_type = "Close game"
+        elif margin >= 20:
+            game_type = "Blowout"
+        else:
+            game_type = "Competitive"
+        
+        result.append({
+            'id': g.id,
+            'date': g.game_date.isoformat(),
+            'home_team': {
+                'id': g.home_team.id,
+                'name': f"{g.home_team.city} {g.home_team.name}",
+                'abbr': g.home_team.abbreviation,
+                'score': g.home_team_score,
+                'won': home_won
+            },
+            'away_team': {
+                'id': g.away_team.id,
+                'name': f"{g.away_team.city} {g.away_team.name}",
+                'abbr': g.away_team.abbreviation,
+                'score': g.away_team_score,
+                'won': not home_won
+            },
+            'margin': margin,
+            'game_type': game_type,
+            'series_info': {
+                'id': g.series_id,
+                'game_number': g.game_number_in_series,
+                'round': g.series.tournament_round if g.series else None
+            } if g.series_id else None,
+            'input_quarter': {
+                'number': g.input_quarter_number,
+                'home_score': g.input_home_score,
+                'away_score': g.input_away_score
+            },
+            'quarters': {
+                'home': [g.home_q1, g.home_q2, g.home_q3, g.home_q4],
+                'away': [g.away_q1, g.away_q2, g.away_q3, g.away_q4]
+            }
+        })
+    
+    return jsonify(result)
+
 # ==================== TOURNAMENT ENDPOINTS ====================
 
 @app.route('/api/tournament/initialize', methods=['POST'])
@@ -401,8 +390,8 @@ def initialize_tournament():
         result = tournament_mgr.create_tournament_bracket()
         return jsonify({
             'message': 'Tournament initialized',
-            'round1_series': len(result['round1_series']),
-            'total_teams': result['total_teams']
+            'round1_series': len(result['round1_series']) if result else 0,
+            'total_teams': result['total_teams'] if result else 0
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -468,8 +457,8 @@ def get_active_series():
     return jsonify([{
         'id': s.id,
         'round': s.tournament_round,
-        'team1': f"{s.team1.city} {s.team1.name}",
-        'team2': f"{s.team2.city} {s.team2.name}",
+        'team1': f"{s.team1.city} {s.team1.name}" if s.team1 else "TBD",
+        'team2': f"{s.team2.city} {s.team2.name}" if s.team2 else "TBD",
         'score': f"{s.team1_wins} - {s.team2_wins}"
     } for s in series_list])
 
@@ -487,7 +476,7 @@ def advance_round(round_number):
 
 @app.route('/api/tournament/reset', methods=['POST'])
 def reset_tournament():
-    """Reset the current tournament (delete all series/games, keep teams/players)"""
+    """Reset the current tournament"""
     try:
         data = request.get_json() or {}
         run_id = data.get('run_id')
@@ -519,247 +508,96 @@ def get_series_games(series_id):
 
 # ==================== STATS ENDPOINTS ====================
 
-@app.route('/api/stats/leaders', methods=['GET'])
-def get_stat_leaders():
-    """Get league leaders in various statistical categories"""
-    from models import Run
+@app.route('/api/stats/input-performance', methods=['GET'])
+def get_input_performance():
+    """Get aggregated stats from user's quarter inputs"""
     session = get_session()
-    
-    # Get optional run_id filter (defaults to active run)
     run_id = request.args.get('run_id', type=int)
-    season_filter = request.args.get('season', 'current')  # 'current' or 'all'
     
-    # Determine which run(s) to query
-    if season_filter == 'all':
-        run_filter = None  # Don't filter by run
-    elif run_id:
-        run_filter = run_id
-    else:
-        # Default to active run
-        active_run = session.query(Run).filter_by(is_active=True).first()
-        run_filter = active_run.id if active_run else None
+    games_query = session.query(Game).filter(Game.is_completed == True)
+    if run_id:
+        games_query = games_query.filter(Game.run_id == run_id)
     
-    # Get all players with their aggregate stats from games played
-    from sqlalchemy import func
+    games = games_query.all()
     
-    # Base query builder
-    def build_leader_query(stat_field, label):
-        query = session.query(
-            Player.id,
-            Player.name,
-            Team.city,
-            Team.name.label('team_name'),
-            func.avg(stat_field).label(label),
-            func.count(PlayerGameStats.id).label('games_played')
-        ).select_from(Player)\
-         .join(PlayerGameStats, Player.id == PlayerGameStats.player_id)\
-         .join(Team, Player.team_id == Team.id)
-        
-        # Add run filter if specified
-        if run_filter:
-            query = query.join(Game, PlayerGameStats.game_id == Game.id)\
-                         .filter(Game.run_id == run_filter)
-        
-        return query.group_by(Player.id, Player.name, Team.city, Team.name)\
-                    .having(func.count(PlayerGameStats.id) >= 1)\
-                    .order_by(func.avg(stat_field).desc()).limit(10).all()
-    
-    # Points leaders
-    points_leaders = build_leader_query(PlayerGameStats.points, 'ppg')
-    
-    # Rebounds leaders
-    rebounds_leaders = build_leader_query(PlayerGameStats.rebounds, 'rpg')
-    
-    # Assists leaders
-    assists_leaders = build_leader_query(PlayerGameStats.assists, 'apg')
-    
-    return jsonify({
-        'scoring_leaders': [{
-            'rank': i + 1,
-            'player_id': p.id,
-            'name': p.name,
-            'team': f"{p.city} {p.team_name}",
-            'ppg': round(p.ppg, 1),
-            'games': p.games_played
-        } for i, p in enumerate(points_leaders)],
-        'rebounding_leaders': [{
-            'rank': i + 1,
-            'player_id': p.id,
-            'name': p.name,
-            'team': f"{p.city} {p.team_name}",
-            'rpg': round(p.rpg, 1),
-            'games': p.games_played
-        } for i, p in enumerate(rebounds_leaders)],
-        'assists_leaders': [{
-            'rank': i + 1,
-            'player_id': p.id,
-            'name': p.name,
-            'team': f"{p.city} {p.team_name}",
-            'apg': round(p.apg, 1),
-            'games': p.games_played
-        } for i, p in enumerate(assists_leaders)]
-    })
-
-@app.route('/api/stats/player/<int:player_id>', methods=['GET'])
-def get_player_stats(player_id):
-    """Get all game stats for a player"""
-    session = get_session()
-    player = session.query(Player).filter_by(id=player_id).first()
-    
-    if not player:
-        return jsonify({'error': 'Player not found'}), 404
-    
-    stats = session.query(PlayerGameStats).filter_by(player_id=player_id).all()
-    
-    return jsonify({
-        'player': {
-            'id': player.id,
-            'name': player.name,
-            'team': f"{player.team.city} {player.team.name}",
-            'position': player.position
-        },
-        'career_averages': {
-            'ppg': player.ppg,
-            'rpg': player.rpg,
-            'apg': player.apg,
-            'fg_pct': player.fg_pct
-        },
-        'games': [{
-            'game_id': s.game_id,
-            'date': s.game.game_date.isoformat(),
-            'points': s.points,
-            'rebounds': s.rebounds,
-            'assists': s.assists,
-            'minutes': s.minutes_played,
-            'fg': f"{s.fgm}/{s.fga}",
-            'plus_minus': s.plus_minus
-        } for s in stats]
-    })
-
-@app.route('/api/stats/teams', methods=['GET'])
-def get_team_stats():
-    """Get statistics for all teams in current or specified run"""
-    from models import Run
-    session = get_session()
-    
-    # Get optional run_id filter (defaults to active run)
-    run_id = request.args.get('run_id', type=int)
-    season_filter = request.args.get('season', 'current')
-    
-    # Determine which run(s) to query
-    if season_filter == 'all':
-        run_filter = None
-    elif run_id:
-        run_filter = run_id
-    else:
-        active_run = session.query(Run).filter_by(is_active=True).first()
-        run_filter = active_run.id if active_run else None
-    
-    teams = session.query(Team).all()
-    team_stats = []
-    
-    from sqlalchemy import func, case
-    
-    for team in teams:
-        # Build query with optional run filter
-        home_games_query = session.query(Game).filter(Game.home_team_id == team.id)
-        away_games_query = session.query(Game).filter(Game.away_team_id == team.id)
-        
-        if run_filter:
-            home_games_query = home_games_query.filter(Game.run_id == run_filter)
-            away_games_query = away_games_query.filter(Game.run_id == run_filter)
-        
-        home_games = home_games_query.all()
-        away_games = away_games_query.all()
-        
-        wins = sum(1 for g in home_games if g.home_team_score > g.away_team_score)
-        wins += sum(1 for g in away_games if g.away_team_score > g.home_team_score)
-        
-        losses = sum(1 for g in home_games if g.home_team_score < g.away_team_score)
-        losses += sum(1 for g in away_games if g.away_team_score < g.home_team_score)
-        
-        games_played = len(home_games) + len(away_games)
-        
-        if games_played == 0:
-            continue
-        
-        points_scored = sum(g.home_team_score for g in home_games) + sum(g.away_team_score for g in away_games)
-        points_allowed = sum(g.away_team_score for g in home_games) + sum(g.home_team_score for g in away_games)
-        
-        team_stats.append({
-            'team_id': team.id,
-            'team': f"{team.city} {team.name}",
-            'games_played': games_played,
-            'wins': wins,
-            'losses': losses,
-            'win_pct': round(wins / games_played, 3) if games_played > 0 else 0,
-            'ppg': round(points_scored / games_played, 1),
-            'opp_ppg': round(points_allowed / games_played, 1),
-            'point_diff': round((points_scored - points_allowed) / games_played, 1)
+    if not games:
+        return jsonify({
+            'total_games': 0,
+            'avg_total_score': 0,
+            'avg_home_score': 0,
+            'avg_away_score': 0,
+            'avg_point_diff': 0,
+            'highest_scoring_game': None,
+            'lowest_scoring_game': None,
+            'closest_game': None,
+            'biggest_blowout': None,
+            'quarters_played': {},
+            'recent_inputs': []
         })
     
-    # Sort by wins descending
-    team_stats.sort(key=lambda x: (x['wins'], x['point_diff']), reverse=True)
+    total_home = sum(g.input_home_score for g in games)
+    total_away = sum(g.input_away_score for g in games)
+    total_combined = total_home + total_away
     
-    return jsonify(team_stats)
-
-@app.route('/api/stats/head-to-head', methods=['GET'])
-def get_head_to_head():
-    """Get head-to-head record between two teams across all games"""
-    team1_id = request.args.get('team1_id', type=int)
-    team2_id = request.args.get('team2_id', type=int)
+    point_diffs = [abs(g.input_home_score - g.input_away_score) for g in games]
     
-    if not team1_id or not team2_id:
-        return jsonify({'error': 'Both team1_id and team2_id required'}), 400
+    quarter_counts = {1: 0, 2: 0, 3: 0, 4: 0}
+    for g in games:
+        quarter_counts[g.input_quarter_number] = quarter_counts.get(g.input_quarter_number, 0) + 1
     
-    session = get_session()
-    team1 = session.query(Team).filter_by(id=team1_id).first()
-    team2 = session.query(Team).filter_by(id=team2_id).first()
-    
-    if not team1 or not team2:
-        return jsonify({'error': 'Invalid team IDs'}), 404
-    
-    # Get all games between these teams
-    games = session.query(Game).filter(
-        ((Game.home_team_id == team1_id) & (Game.away_team_id == team2_id)) |
-        ((Game.home_team_id == team2_id) & (Game.away_team_id == team1_id))
-    ).all()
-    
-    team1_wins = 0
-    team2_wins = 0
-    game_history = []
-    
-    for game in games:
-        if game.home_team_id == team1_id:
-            team1_score = game.home_team_score
-            team2_score = game.away_team_score
-            if team1_score > team2_score:
-                team1_wins += 1
-            else:
-                team2_wins += 1
-        else:
-            team1_score = game.away_team_score
-            team2_score = game.home_team_score
-            if team1_score > team2_score:
-                team1_wins += 1
-            else:
-                team2_wins += 1
-        
-        game_history.append({
-            'game_id': game.id,
-            'date': game.game_date.isoformat(),
-            'team1_score': team1_score,
-            'team2_score': team2_score,
-            'winner': f"{team1.city} {team1.name}" if team1_score > team2_score else f"{team2.city} {team2.name}"
-        })
+    highest_game = max(games, key=lambda g: g.input_home_score + g.input_away_score)
+    lowest_game = min(games, key=lambda g: g.input_home_score + g.input_away_score)
+    closest_game = min(games, key=lambda g: abs(g.input_home_score - g.input_away_score))
+    biggest_blowout = max(games, key=lambda g: abs(g.input_home_score - g.input_away_score))
     
     return jsonify({
-        'team1': f"{team1.city} {team1.name}",
-        'team2': f"{team2.city} {team2.name}",
-        'team1_wins': team1_wins,
-        'team2_wins': team2_wins,
         'total_games': len(games),
-        'game_history': game_history
+        'avg_total_score': round(total_combined / len(games), 1),
+        'avg_home_score': round(total_home / len(games), 1),
+        'avg_away_score': round(total_away / len(games), 1),
+        'avg_point_diff': round(sum(point_diffs) / len(games), 1),
+        'highest_scoring_game': {
+            'game_id': highest_game.id,
+            'home_team': f"{highest_game.home_team.city} {highest_game.home_team.name}",
+            'away_team': f"{highest_game.away_team.city} {highest_game.away_team.name}",
+            'score': f"{highest_game.input_home_score}-{highest_game.input_away_score}",
+            'total': highest_game.input_home_score + highest_game.input_away_score
+        },
+        'lowest_scoring_game': {
+            'game_id': lowest_game.id,
+            'home_team': f"{lowest_game.home_team.city} {lowest_game.home_team.name}",
+            'away_team': f"{lowest_game.away_team.city} {lowest_game.away_team.name}",
+            'score': f"{lowest_game.input_home_score}-{lowest_game.input_away_score}",
+            'total': lowest_game.input_home_score + lowest_game.input_away_score
+        },
+        'closest_game': {
+            'game_id': closest_game.id,
+            'home_team': f"{closest_game.home_team.city} {closest_game.home_team.name}",
+            'away_team': f"{closest_game.away_team.city} {closest_game.away_team.name}",
+            'score': f"{closest_game.input_home_score}-{closest_game.input_away_score}",
+            'diff': abs(closest_game.input_home_score - closest_game.input_away_score)
+        },
+        'biggest_blowout': {
+            'game_id': biggest_blowout.id,
+            'home_team': f"{biggest_blowout.home_team.city} {biggest_blowout.home_team.name}",
+            'away_team': f"{biggest_blowout.away_team.city} {biggest_blowout.away_team.name}",
+            'score': f"{biggest_blowout.input_home_score}-{biggest_blowout.input_away_score}",
+            'diff': abs(biggest_blowout.input_home_score - biggest_blowout.input_away_score)
+        },
+        'quarters_played': quarter_counts,
+        'win_rate_by_score': {
+            '20+': round(len([g for g in games if max(g.input_home_score, g.input_away_score) >= 20]) / len(games) * 100, 1),
+            '25+': round(len([g for g in games if max(g.input_home_score, g.input_away_score) >= 25]) / len(games) * 100, 1),
+            '30+': round(len([g for g in games if max(g.input_home_score, g.input_away_score) >= 30]) / len(games) * 100, 1)
+        },
+        'recent_inputs': [{
+            'game_id': g.id,
+            'date': g.game_date.isoformat(),
+            'quarter': g.input_quarter_number,
+            'home_score': g.input_home_score,
+            'away_score': g.input_away_score,
+            'total': g.input_home_score + g.input_away_score
+        } for g in sorted(games, key=lambda x: x.game_date, reverse=True)[:10]]
     })
 
 # ==================== RUN MANAGEMENT ENDPOINTS ====================
@@ -767,7 +605,6 @@ def get_head_to_head():
 @app.route('/api/runs', methods=['GET'])
 def get_runs():
     """Get all tournament runs/seasons"""
-    from models import Run
     session = get_session()
     runs = session.query(Run).order_by(Run.year.desc()).all()
     
@@ -784,15 +621,11 @@ def get_runs():
 @app.route('/api/runs', methods=['POST'])
 def create_run():
     """Create a new tournament run/season"""
-    from models import Run
     data = request.get_json()
     
     session = get_session()
-    
-    # Deactivate all existing runs
     session.query(Run).update({'is_active': False})
     
-    # Create new run
     new_run = Run(
         name=data.get('name', f"Season {data.get('year', datetime.now().year)}"),
         year=data.get('year', datetime.now().year),
@@ -802,7 +635,6 @@ def create_run():
     session.add(new_run)
     session.commit()
     
-    # Initialize tournament for this run
     result = tournament_mgr.create_tournament_bracket(run_id=new_run.id)
     
     return jsonify({
@@ -815,13 +647,9 @@ def create_run():
 @app.route('/api/runs/<int:run_id>/activate', methods=['PUT'])
 def activate_run(run_id):
     """Switch to a different run/season"""
-    from models import Run
     session = get_session()
-    
-    # Deactivate all runs
     session.query(Run).update({'is_active': False})
     
-    # Activate selected run
     run = session.query(Run).filter_by(id=run_id).first()
     if not run:
         return jsonify({'error': 'Run not found'}), 404
@@ -838,7 +666,6 @@ def activate_run(run_id):
 @app.route('/api/runs/active', methods=['GET'])
 def get_active_run():
     """Get currently active run"""
-    from models import Run
     session = get_session()
     run = session.query(Run).filter_by(is_active=True).first()
     
@@ -853,160 +680,13 @@ def get_active_run():
         'champion': f"{run.champion.city} {run.champion.name}" if run.champion else None
     })
 
-# ==================== FREE AGENT ENDPOINTS ====================
+# ==================== STATIC FRONTEND ====================
 
-@app.route('/api/free-agents', methods=['GET'])
-def get_free_agents():
-    """Get all free agents"""
-    session = get_session()
-    fa_team = session.query(Team).filter_by(team_type='Free Agent').first()
-    
-    if not fa_team:
-        return jsonify([])
-    
-    players = session.query(Player).filter_by(team_id=fa_team.id).order_by(Player.ppg.desc()).all()
-    
-    return jsonify([{
-        'id': p.id,
-        'name': p.name,
-        'position': p.position,
-        'height': p.height,
-        'weight': p.weight,
-        'ppg': p.ppg,
-        'rpg': p.rpg,
-        'apg': p.apg,
-        'spg': p.spg,
-        'bpg': p.bpg,
-        'fg_pct': p.fg_pct,
-        'three_pt_pct': p.three_pt_pct,
-        'ft_pct': p.ft_pct,
-        'mpg': p.mpg
-    } for p in players])
-
-@app.route('/api/players/<int:player_id>/sign', methods=['POST'])
-def sign_player():
-    """Sign a free agent to a team"""
-    data = request.get_json()
-    player_id = request.view_args['player_id']
-    team_id = data.get('team_id')
-    
-    if not team_id:
-        return jsonify({'error': 'team_id required'}), 400
-    
-    session = get_session()
-    player = session.query(Player).filter_by(id=player_id).first()
-    team = session.query(Team).filter_by(id=team_id).first()
-    
-    if not player or not team:
-        return jsonify({'error': 'Player or team not found'}), 404
-    
-    # Check if player is a free agent
-    fa_team = session.query(Team).filter_by(team_type='Free Agent').first()
-    if player.team_id != fa_team.id:
-        return jsonify({'error': 'Player is not a free agent'}), 400
-    
-    # Sign player to team
-    old_team_name = player.team.name if player.team else "Free Agency"
-    player.team_id = team_id
-    session.commit()
-    
-    return jsonify({
-        'message': f'{player.name} signed to {team.city} {team.name}',
-        'player': player.name,
-        'old_team': old_team_name,
-        'new_team': f'{team.city} {team.name}'
-    })
-
-@app.route('/api/players/<int:player_id>/release', methods=['POST'])
-def release_player():
-    """Release a player to free agency"""
-    player_id = request.view_args['player_id']
-    
-    session = get_session()
-    player = session.query(Player).filter_by(id=player_id).first()
-    fa_team = session.query(Team).filter_by(team_type='Free Agent').first()
-    
-    if not player:
-        return jsonify({'error': 'Player not found'}), 404
-    
-    if not fa_team:
-        return jsonify({'error': 'Free agent team not found'}), 404
-    
-    # Release player
-    old_team = player.team
-    player.team_id = fa_team.id
-    session.commit()
-    
-    return jsonify({
-        'message': f'{player.name} released to free agency',
-        'player': player.name,
-        'old_team': f'{old_team.city} {old_team.name}' if old_team else 'Unknown'
-    })
-
-@app.route('/api/players/trade', methods=['POST'])
-def trade_players():
-    """Trade players between two teams"""
-    data = request.get_json()
-    
-    # player_ids_team1: list of player IDs from team 1
-    # player_ids_team2: list of player IDs from team 2
-    player_ids_team1 = data.get('player_ids_team1', [])
-    player_ids_team2 = data.get('player_ids_team2', [])
-    
-    if not player_ids_team1 or not player_ids_team2:
-        return jsonify({'error': 'Both teams must trade at least one player'}), 400
-    
-    session = get_session()
-    
-    # Get all players
-    players_team1 = session.query(Player).filter(Player.id.in_(player_ids_team1)).all()
-    players_team2 = session.query(Player).filter(Player.id.in_(player_ids_team2)).all()
-    
-    if len(players_team1) != len(player_ids_team1) or len(players_team2) != len(player_ids_team2):
-        return jsonify({'error': 'One or more players not found'}), 404
-    
-    # Verify all team1 players are on the same team
-    team1_id = players_team1[0].team_id
-    if not all(p.team_id == team1_id for p in players_team1):
-        return jsonify({'error': 'All team1 players must be on the same team'}), 400
-    
-    # Verify all team2 players are on the same team
-    team2_id = players_team2[0].team_id
-    if not all(p.team_id == team2_id for p in players_team2):
-        return jsonify({'error': 'All team2 players must be on the same team'}), 400
-    
-    # Perform the trade (swap team IDs)
-    for player in players_team1:
-        player.team_id = team2_id
-    
-    for player in players_team2:
-        player.team_id = team1_id
-    
-    session.commit()
-    
-    team1 = session.query(Team).filter_by(id=team1_id).first()
-    team2 = session.query(Team).filter_by(id=team2_id).first()
-    
-    return jsonify({
-        'message': 'Trade completed',
-        'team1': f'{team1.city} {team1.name}',
-        'team2': f'{team2.city} {team2.name}',
-        'team1_receives': [p.name for p in players_team2],
-        'team2_receives': [p.name for p in players_team1]
-    })
-
-"""
-Static frontend serving must be defined before app.run
-so routes are registered prior to server start.
-"""
-# ==================== STATIC FRONTEND (BUILD) ====================
-# Serve the React build for same-origin usage when available
 FRONTEND_BUILD_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'frontend', 'build'))
 
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve_frontend(path):
-    # If a real file exists (css/js/assets), serve it; else return index.html for SPA routing
     target = os.path.join(FRONTEND_BUILD_DIR, path)
     if path and os.path.exists(target) and os.path.isfile(target):
         return send_from_directory(FRONTEND_BUILD_DIR, path)
