@@ -682,7 +682,8 @@ def get_active_run():
 
 # ==================== STATIC FRONTEND ====================
 
-FRONTEND_BUILD_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'frontend', 'build'))
+# Use absolute path from /app root
+FRONTEND_BUILD_DIR = '/app/frontend/build'
 
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
