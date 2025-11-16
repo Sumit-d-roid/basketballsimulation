@@ -34,8 +34,8 @@ RUN if [ ! -f basketball_sim.db ]; then \
     python add_free_agents.py; \
     fi
 
-# Go back to app root
-WORKDIR /app
+# Go back to backend for runtime
+WORKDIR /app/backend
 
 # Expose port (Railway will set PORT env variable)
 EXPOSE 8080
@@ -43,5 +43,5 @@ EXPOSE 8080
 # Set environment variable for Python unbuffered output
 ENV PYTHONUNBUFFERED=1
 
-# Start gunicorn directly
-CMD cd backend && gunicorn -w 4 -b 0.0.0.0:${PORT:-8080} app:app
+# Start gunicorn using exec form with shell
+CMD ["sh", "-c", "gunicorn -w 4 -b 0.0.0.0:${PORT:-8080} app:app"]
