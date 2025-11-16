@@ -37,11 +37,11 @@ RUN if [ ! -f basketball_sim.db ]; then \
 # Go back to app root
 WORKDIR /app
 
-# Make start script executable
-RUN chmod +x start.sh
-
 # Expose port (Railway will set PORT env variable)
 EXPOSE 8080
 
-# Start the application using bash
-CMD ["/bin/bash", "./start.sh"]
+# Set environment variable for Python unbuffered output
+ENV PYTHONUNBUFFERED=1
+
+# Start gunicorn directly
+CMD cd backend && gunicorn -w 4 -b 0.0.0.0:${PORT:-8080} app:app
