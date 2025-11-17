@@ -309,34 +309,6 @@ def get_all_games():
         'series_id': g.series_id
     } for g in games])
 
-@app.route('/api/games/<int:game_id>', methods=['DELETE'])
-def delete_game(game_id):
-    """Delete a game and all associated data"""
-    session = get_session()
-    
-    try:
-        game = session.query(Game).get(game_id)
-        if not game:
-            return jsonify({'error': 'Game not found'}), 404
-        
-        # Delete associated play-by-play data
-        session.query(PlayByPlay).filter_by(game_id=game_id).delete()
-        
-        # Delete associated player stats
-        session.query(PlayerGameStats).filter_by(game_id=game_id).delete()
-        
-        # Delete associated runs data
-        session.query(Run).filter_by(game_id=game_id).delete()
-        
-        # Delete the game
-        session.delete(game)
-        session.commit()
-        
-        return jsonify({'message': 'Game deleted successfully'}), 200
-    except Exception as e:
-        session.rollback()
-        return jsonify({'error': f'Failed to delete game: {str(e)}'}), 500
-
 @app.route('/api/games/history', methods=['GET'])
 def get_game_history():
     """Get recent games with detailed info (game feed)"""
