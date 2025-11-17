@@ -30,7 +30,6 @@ function App() {
   const [tournamentData, setTournamentData] = useState<any>(null);
   const [games, setGames] = useState<any[]>([]);
   const [selectedGame, setSelectedGame] = useState<any>(null);
-  const [playByPlay, setPlayByPlay] = useState<any[]>([]);
   const [statLeaders, setStatLeaders] = useState<any>(null);
   
   // Runs/Seasons
@@ -43,10 +42,11 @@ function App() {
   const [showPreview, setShowPreview] = useState(false);
 
   useEffect(() => {
-    // Load active series and runs on mount
+    // Load active series, runs, and stats on mount
     loadActiveSeries();
     loadRuns();
     loadActiveRun();
+    loadStatLeaders();
   }, []);
 
   const loadRuns = async () => {
@@ -242,17 +242,34 @@ function App() {
   const handleViewGame = async (gameId: number) => {
     try {
       setLoading(true);
-      const response = await api.getGame(gameId);
-      setSelectedGame(response.data);
-      
-      // Load play-by-play
-      const pbpResponse = await api.getPlayByPlay(gameId);
-      setPlayByPlay(pbpResponse.data);
+      const gameResponse = await api.getGame(gameId);
+      setSelectedGame(gameResponse.data);
       
       setCurrentView('game-details');
       setLoading(false);
     } catch (err: any) {
       setError('Failed to load game: ' + err.message);
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteGame = async (gameId: number) => {
+    if (!window.confirm('Are you sure you want to delete this game? This will remove all associated stats and play-by-play data.')) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await api.deleteGame(gameId);
+      setSuccess('Game deleted successfully');
+      // Reload games list
+      await loadGames();
+      setLoading(false);
+      
+      // Clear success message after 3 seconds
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err: any) {
+      setError('Failed to delete game: ' + err.message);
       setLoading(false);
     }
   };
@@ -267,7 +284,7 @@ function App() {
     } else if (currentView === 'stats') {
       loadStatLeaders();
     }
-  }, [currentView]);
+  }, [currentView, seasonFilter]);
 
   return (
     <div className="app">
@@ -531,7 +548,7 @@ function App() {
                   <th>Date</th>
                   <th>Matchup</th>
                   <th>Final Score</th>
-                  <th>Action</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -543,9 +560,32 @@ function App() {
                     <td>
                       <button 
                         onClick={() => handleViewGame(game.id)}
-                        style={{ padding: '8px 16px', cursor: 'pointer' }}
+                        style={{ 
+                          padding: '8px 16px', 
+                          cursor: 'pointer',
+                          marginRight: '8px',
+                          background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '8px',
+                          fontWeight: '600'
+                        }}
                       >
-                        View Details
+                        View
+                      </button>
+                      <button 
+                        onClick={() => handleDeleteGame(game.id)}
+                        style={{ 
+                          padding: '8px 16px', 
+                          cursor: 'pointer',
+                          background: 'linear-gradient(135deg, #dc2626 0%, #991b1b 100%)',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '8px',
+                          fontWeight: '600'
+                        }}
+                      >
+                        Delete
                       </button>
                     </td>
                   </tr>
@@ -664,21 +704,6 @@ function App() {
               </tbody>
             </table>
           </div>
-
-          {playByPlay.length > 0 && (
-            <div className="card">
-              <h3>Play-by-Play</h3>
-              <div className="play-by-play">
-                {playByPlay.map((play: any) => (
-                  <div key={play.id} className="play-item">
-                    <span className="play-time">Q{play.quarter} {play.time}</span>
-                    <span style={{ flex: 1 }}>{play.description}</span>
-                    <span className="play-score">{play.home_score}-{play.away_score}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       )}
 
